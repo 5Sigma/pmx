@@ -66,7 +66,7 @@ func notifyNewMail(
 			if from == "" {
 				from = m.From.Email
 			}
-			notifier.Notify(from, m.Subject)
+			notifier.Notify(from, m.Subject, acct.Name)
 			if m.UID > cursor {
 				cursor = m.UID
 			}
