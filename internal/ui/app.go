@@ -18,6 +18,7 @@ import (
 	"github.com/5Sigma/pmx/internal/mailsend"
 	"github.com/5Sigma/pmx/internal/mailsync"
 	"github.com/5Sigma/pmx/internal/ui/accountdrawer"
+	"github.com/5Sigma/pmx/internal/ui/compose"
 	"github.com/5Sigma/pmx/internal/ui/folderdrawer"
 	"github.com/5Sigma/pmx/internal/ui/keymap"
 	"github.com/5Sigma/pmx/internal/ui/pathpicker"
@@ -480,6 +481,32 @@ func (m *Model) closeOtherOverlays(keep string) {
 	}
 }
 
+// buildContactSuggestFunc returns a compose.SuggestFunc closure bound to the
+// current store and active accountID. The closure runs the SearchContacts
+// call off the UI goroutine (as a tea.Cmd) and wraps the result in a
+// compose.ContactSuggestionsMsg that the chip input will consume.
+//
+// Returns nil when there's no store or no active account yet — the chip
+// input treats a nil SuggestFunc as "autocomplete disabled" and renders
+// normally without a dropdown.
+func (m Model) buildContactSuggestFunc() compose.SuggestFunc {
+	if m.store == nil || m.accountID == 0 {
+		return nil
+	}
+	store := m.store
+	accountID := m.accountID
+	return func(prefix string, qID uint64) tea.Cmd {
+		return func() tea.Msg {
+			const limit = 8
+			results, err := store.SearchContacts(accountID, prefix, limit)
+			if err != nil {
+				return compose.ContactSuggestionsMsg{QueryID: qID}
+			}
+			return compose.ContactSuggestionsMsg{QueryID: qID, Results: results}
+		}
+	}
+}
+
 // popIfRequested pops the top view when the stack has more than one entry
 // and `want` is true. Called by markSeen/delete/archive handlers to leave
 // the mail-read view after acting on a message.
@@ -582,6 +609,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case pushMsg:
+		// Inject compose-time dependencies before the view is sized or
+		// initialised. The compose view needs a SuggestFunc bound to the
+		// live store + active account so its recipient fields can query
+		// contact suggestions. This is wired here (not at construction)
+		// because the stack is built across several packages that don't
+		// know about accountID.
+		if cv, ok := msg.view.(*composeView); ok {
+			cv.SetSuggestFunc(m.buildContactSuggestFunc())
+		}
 		v := msg.view.SetSize(m.contentWidth(), m.contentHeight())
 		m.stack = append(m.stack, v)
 		m.wk.SetKeyMap(v.KeyMap())

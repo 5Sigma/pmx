@@ -93,9 +93,14 @@ func newComposeView(cfg *config.Config, store mail.MessageStore, sender *mailsen
 
 // newComposeViewSeeded creates a compose view pre-populated from seed.
 // Pass nil for seed to get the same behaviour as newComposeView.
+//
+// The returned view starts with no contact-suggestion wiring; the root
+// model injects a SuggestFunc via composeView.SetSuggestFunc when the view
+// is pushed onto the stack (see app.go). This keeps the data dependency —
+// store + current accountID — scoped to the one place that owns it.
 func newComposeViewSeeded(cfg *config.Config, store mail.MessageStore, sender *mailsend.Engine, seed *compose.Seed) *composeView {
 	c := &composeView{cfg: cfg, store: store, sender: sender, seed: seed}
-	c.form = newComposeForm(cfg)
+	c.form = newComposeForm(cfg, nil)
 	c.vp = viewport.New(0, 0)
 
 	if seed != nil {
@@ -133,6 +138,17 @@ func (c *composeView) IsCapturingInput() bool {
 	return c.stage == composeStageForm || c.stage == composeStageEditing
 }
 
+// SetSuggestFunc installs the contact-suggestion callback on every recipient
+// chip input in the form. Called by the root model right after the compose
+// view is pushed so the closure can bind to the live store + accountID
+// without the compose package needing to know either.
+func (c *composeView) SetSuggestFunc(fn compose.SuggestFunc) {
+	if c.form == nil {
+		return
+	}
+	c.form.SetSuggestFunc(fn)
+}
+
 func (c *composeView) Init() tea.Cmd {
 	return c.form.Init()
 }
@@ -162,10 +178,17 @@ func (c *composeView) Update(msg tea.Msg) (View, tea.Cmd) {
 		return c, nil
 
 	case tea.KeyMsg:
-		// Esc always cancels compose at any stage. We handle it here (before
-		// routing to the form or preview sub-updates) so a stuck form state
-		// can never prevent the user from backing out.
+		// Esc normally cancels compose at any stage. The one exception: when
+		// a chip-input's suggestion dropdown is open, the first esc closes
+		// just the dropdown and the compose view stays put. The chip input
+		// swallows the keystroke itself, so we route esc through the normal
+		// Update() path in that case rather than popping.
 		if msg.String() == "esc" {
+			if c.stage == composeStageForm && c.form != nil && c.form.SuggestOpen() {
+				var cmd tea.Cmd
+				c.form, cmd = c.form.Update(msg)
+				return c, cmd
+			}
 			if c.bodyPath != "" {
 				_ = os.Remove(c.bodyPath)
 				c.bodyPath = ""
@@ -545,8 +568,8 @@ func (c *composeView) renderForm() string {
 		return ""
 	}
 
-	panelW := 62
-	if w < 74 {
+	panelW := 76
+	if w < 88 {
 		panelW = w - 8
 	}
 	if panelW < 28 {

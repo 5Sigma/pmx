@@ -25,6 +25,9 @@ var migration0005 string
 //go:embed schema/0006_outbox_claim.sql
 var migration0006 string
 
+//go:embed schema/0007_contacts.sql
+var migration0007 string
+
 type migration struct {
 	version int
 	sql     string
@@ -37,6 +40,7 @@ var migrations = []migration{
 	{4, migration0004},
 	{5, migration0005},
 	{6, migration0006},
+	{7, migration0007},
 }
 
 func runMigrations(db *sql.DB) error {

@@ -88,6 +88,12 @@ type MessageStore interface {
 	// NewMessagesSince returns up to limit unseen messages in the folder whose
 	// UID is strictly greater than afterUID, ordered by UID ASC.
 	NewMessagesSince(folderID int64, afterUID uint32, limit int) ([]*Message, error)
+	// UpsertContact records a single address interaction for accountID.
+	UpsertContact(accountID int64, addr Address, kind ContactKind, now time.Time) error
+	// UpsertContacts records a batch of address interactions in a single transaction.
+	UpsertContacts(accountID int64, items []ContactUpsert, now time.Time) error
+	// SearchContacts returns contacts matching prefix, ranked by interaction frequency.
+	SearchContacts(accountID int64, prefix string, limit int) ([]Contact, error)
 	// Close closes the store.
 	Close() error
 }

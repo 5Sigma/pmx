@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/emersion/go-imap/v2"
@@ -79,6 +80,30 @@ func sendOneWithPass(
 			return sendResult{}, fmt.Errorf("mark failed: %w", merr)
 		}
 		return sendResult{failed: true}, nil
+	}
+
+	// Record sent recipients in the contacts frequency index.
+	if rTo, rCc, rBcc, rErr := extractAddressedParties(item.RawEML); rErr == nil {
+		allRecipients := make([]mail.Address, 0, len(rTo)+len(rCc)+len(rBcc))
+		allRecipients = append(allRecipients, rTo...)
+		allRecipients = append(allRecipients, rCc...)
+		allRecipients = append(allRecipients, rBcc...)
+		items := make([]mail.ContactUpsert, 0, len(allRecipients))
+		for _, a := range allRecipients {
+			lc := strings.ToLower(a.Email)
+			if lc == "" || mail.IsSystemAddress(lc) {
+				continue
+			}
+			items = append(items, mail.ContactUpsert{
+				Address: mail.Address{Name: a.Name, Email: lc},
+				Kind:    mail.ContactSent,
+			})
+		}
+		if len(items) > 0 {
+			if cerr := store.UpsertContacts(item.AccountID, items, time.Now()); cerr != nil {
+				logger.Warn("sent contact upsert failed", "err", cerr)
+			}
+		}
 	}
 
 	// SMTP accepted — APPEND to Sent folder before deleting the row.

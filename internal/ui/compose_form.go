@@ -81,7 +81,9 @@ type composeForm struct {
 // newComposeForm wires up the fields and resolves the default-account index
 // (matched by Name against cfg.General.DefaultAccount, falling back to the
 // first configured account). Theme state is restored from the last session.
-func newComposeForm(cfg *config.Config) *composeForm {
+// suggest is forwarded to each recipient ChipInput to drive the contact
+// autocomplete dropdown; pass nil to disable suggestions.
+func newComposeForm(cfg *config.Config, suggest compose.SuggestFunc) *composeForm {
 	f := &composeForm{
 		focused: 1, // start on the To field — the most common first keystroke
 	}
@@ -101,6 +103,9 @@ func newComposeForm(cfg *config.Config) *composeForm {
 	f.to = compose.NewChipInput("recipient@example.com")
 	f.cc = compose.NewChipInput("cc@example.com")
 	f.bcc = compose.NewChipInput("bcc@example.com")
+	f.to.SetSuggestFunc(suggest)
+	f.cc.SetSuggestFunc(suggest)
+	f.bcc.SetSuggestFunc(suggest)
 	f.subject = newComposeInput("(no subject)")
 
 	// Load available themes and restore the last selection.
@@ -212,15 +217,38 @@ func (f *composeForm) Update(msg tea.Msg) (*composeForm, tea.Cmd) {
 		return f, tea.Batch(cmds...)
 	}
 
-	// Note: esc is intercepted by composeView.Update() before this is called,
-	// so we don't need to handle it here. Keeping formStateCancelled wired up
-	// for completeness in case something ever synthesises an esc at this level.
+	current := f.fields[f.focused]
+
+	// When a chip-input's suggestion dropdown is open, hand the keystroke
+	// straight to the chip input so its priority bindings (↑/↓ selection,
+	// Tab/Enter accept, Esc close) win over the ambient form navigation.
+	// This must run BEFORE the generic esc→Cancelled branch below so a
+	// first esc only dismisses the dropdown, not the whole compose view.
+	// Comma is intentionally NOT caught here — the chip input handles it
+	// itself and commits typed text as a literal chip.
+	if chip := f.activeDropdownChip(); chip != nil {
+		switch key.String() {
+		case "up", "down", "enter", "tab", "esc":
+			updated, cmd := chip.Update(msg)
+			f.applyChipUpdate(current, updated)
+			return f, cmd
+		case "shift+tab":
+			// Close the dropdown first (so it doesn't ghost onto the next
+			// field) then cycle focus backwards.
+			updated, _ := chip.Update(tea.KeyMsg{Type: tea.KeyEsc})
+			f.applyChipUpdate(current, updated)
+			return f, f.moveFocus(-1)
+		}
+	}
+
+	// Note: esc is intercepted by composeView.Update() before this is called
+	// (except when a dropdown is open, handled above), so we don't normally
+	// see it here. Keeping formStateCancelled wired up for completeness in
+	// case something ever synthesises an esc at this level.
 	if key.String() == "esc" {
 		f.state = formStateCancelled
 		return f, nil
 	}
-
-	current := f.fields[f.focused]
 
 	// Keys handled uniformly across every field. j/k only cycle focus when
 	// the current field is NOT a text input — otherwise they'd eat literal
@@ -355,6 +383,51 @@ func (f *composeForm) Update(msg tea.Msg) (*composeForm, tea.Cmd) {
 	return f, nil
 }
 
+// activeDropdownChip returns the ChipInput whose suggestion dropdown is
+// currently open, or nil when no dropdown is active. Only the focused field
+// is considered — a dropdown can only be visible while its field has focus.
+func (f *composeForm) activeDropdownChip() *compose.ChipInput {
+	if f.focused < 0 || f.focused >= len(f.fields) {
+		return nil
+	}
+	switch f.fields[f.focused] {
+	case fieldTo:
+		if f.to != nil && f.to.SuggestOpen() {
+			return f.to
+		}
+	case fieldCc:
+		if f.cc != nil && f.cc.SuggestOpen() {
+			return f.cc
+		}
+	case fieldBcc:
+		if f.bcc != nil && f.bcc.SuggestOpen() {
+			return f.bcc
+		}
+	}
+	return nil
+}
+
+// SuggestOpen reports whether any of the recipient fields currently has its
+// suggestion dropdown open. Used by composeView to suppress the global esc
+// cancel so the first esc only closes the dropdown.
+func (f *composeForm) SuggestOpen() bool {
+	return f.activeDropdownChip() != nil
+}
+
+// applyChipUpdate replaces the slot for field with the updated ChipInput
+// returned from Update. Keeps the three chip pointers in sync when
+// delegating to the active dropdown handler.
+func (f *composeForm) applyChipUpdate(field formField, updated *compose.ChipInput) {
+	switch field {
+	case fieldTo:
+		f.to = updated
+	case fieldCc:
+		f.cc = updated
+	case fieldBcc:
+		f.bcc = updated
+	}
+}
+
 // cycleAccount moves the From selection by delta, wrapping at both ends.
 // A no-op when there are fewer than two accounts.
 func (f *composeForm) cycleAccount(delta int) {
@@ -393,6 +466,22 @@ func (f *composeForm) computeFields() []formField {
 func (f *composeForm) SetShowAdvanced(v bool) {
 	f.showAdvanced = v
 	f.fields = f.computeFields()
+}
+
+// SetSuggestFunc installs the contact-suggestion callback on all three
+// recipient chip inputs. Safe to call after construction when the SuggestFunc
+// closure is only known once the compose view has been pushed (which is how
+// the root model wires it up).
+func (f *composeForm) SetSuggestFunc(fn compose.SuggestFunc) {
+	if f.to != nil {
+		f.to.SetSuggestFunc(fn)
+	}
+	if f.cc != nil {
+		f.cc.SetSuggestFunc(fn)
+	}
+	if f.bcc != nil {
+		f.bcc.SetSuggestFunc(fn)
+	}
 }
 
 // submit validates and transitions to formStateSubmitted when the form is
@@ -535,15 +624,19 @@ func (f *composeForm) SelectedThemeCSS() string {
 // View draws the four form rows plus (when present) a validation error line.
 // The footer is rendered separately by composeView.renderForm() so it can be
 // painted on its own background section.
+//
+// When a chip-input's suggestion dropdown is open, the dropdown is spliced
+// into the finished frame as a floating overlay — it does not occupy flow
+// space, so toggling it never shifts the position of any other row.
 func (f *composeForm) View() string {
-	var rows []string
+	rowStrs := make([]string, 0, len(f.fields))
 	for i, field := range f.fields {
-		rows = append(rows, f.renderRow(field, i == f.focused))
+		rowStrs = append(rowStrs, f.renderRow(field, i == f.focused))
 	}
 	if f.err != "" {
-		rows = append(rows, f.renderError())
+		rowStrs = append(rowStrs, f.renderError())
 	}
-	return strings.Join(rows, "\n")
+	return strings.Join(rowStrs, "\n")
 }
 
 // renderRow is the shared row shell: a focus accent in the gutter, a
@@ -637,6 +730,11 @@ func (f *composeForm) renderValue(field formField, focused bool) string {
 // row or the placeholder needs its own row. The row shell (renderRow) only
 // prepends the 14-cell prefix once, so we manually indent every continuation
 // line to align it with the value column.
+//
+// When the chip's suggestion dropdown is open, the panel is appended as
+// additional inline rows below the input — indented by the form prefix width
+// so it sits under the value column. The dropdown uses its own lipgloss
+// styling, so it is NOT wrapped by surf.Render.
 func (f *composeForm) renderChipValue(chip *compose.ChipInput, _ bool) string {
 	surf := lipgloss.NewStyle().Background(styles.ColorSurface)
 	pad := surf.Render(strings.Repeat(" ", formPrefixW))
@@ -648,7 +746,14 @@ func (f *composeForm) renderChipValue(chip *compose.ChipInput, _ bool) string {
 			lines[i] = pad + surf.Render(l)
 		}
 	}
-	return strings.Join(lines, "\n")
+	result := strings.Join(lines, "\n")
+
+	if dv := chip.DropdownView(); dv != "" {
+		for _, dl := range strings.Split(dv, "\n") {
+			result += "\n" + pad + dl
+		}
+	}
+	return result
 }
 
 // renderFromValue draws the `◀ <label> ▶` cycler. Arrows are mint when

@@ -86,6 +86,16 @@ func (e *Engine) syncFolder(ctx context.Context, acct config.Account, folderName
 	return e.fetchFolder(ctx, c, acct, folderID, accountID, serverUIDValidity, folderName, emit)
 }
 
+// shouldRecordContacts returns false for folders whose senders/recipients
+// are not useful autocomplete candidates (Sent, Drafts, Trash, Junk).
+func shouldRecordContacts(r mail.FolderRole) bool {
+	switch r {
+	case mail.RoleSent, mail.RoleDrafts, mail.RoleTrash, mail.RoleJunk:
+		return false
+	}
+	return true
+}
+
 // fetchFolder performs one catch-up sync pass on an already-authenticated,
 // folder-selected client c. serverUIDValidity is the value returned by the
 // prior SELECT. It emits FolderStarted/FolderDone via emit and respects ctx
@@ -95,6 +105,10 @@ func (e *Engine) fetchFolder(ctx context.Context, c *imapclient.Client, acct con
 	if err != nil {
 		return err
 	}
+
+	recordContacts := shouldRecordContacts(folder.Role)
+	var contactBuf []mail.ContactUpsert
+	ownEmailLower := strings.ToLower(acct.Email)
 
 	emit(FolderStarted{Account: acct.Name, Folder: folderName})
 
@@ -382,7 +396,25 @@ func (e *Engine) fetchFolder(ctx context.Context, c *imapclient.Client, acct con
 					return err
 				}
 			}
+			if recordContacts {
+				from := m.msg.From
+				lc := strings.ToLower(from.Email)
+				if lc != "" && lc != ownEmailLower && !mail.IsSystemAddress(lc) {
+					contactBuf = append(contactBuf, mail.ContactUpsert{
+						Address: mail.Address{Name: from.Name, Email: lc},
+						Kind:    mail.ContactReceived,
+					})
+				}
+			}
 			added++
+		}
+
+		// Flush contact buffer accumulated during this batch.
+		if len(contactBuf) > 0 {
+			if err := e.store.UpsertContacts(accountID, contactBuf, time.Now()); err != nil {
+				e.logger.Warn("contact upsert failed", "err", err)
+			}
+			contactBuf = contactBuf[:0]
 		}
 
 		// Emit incremental progress for every non-last batch. The true final
