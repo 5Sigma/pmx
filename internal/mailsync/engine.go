@@ -442,11 +442,12 @@ func (e *Engine) watchOnce(ctx context.Context, acct config.Account, authFn func
 	combinedPoke := mergedPoke(ctx, poke, pokeSend)
 
 	caps := c.Caps()
-	if caps.Has(imap.CapIdle) && acct.IDLEEnabled {
+	if caps.Has(imap.CapIdle) && (acct.IDLEEnabled == nil || *acct.IDLEEnabled) {
 		e.logger.Debug("watchOnce: entering IDLE loop", "account", acct.Name)
 		return e.idleLoop(ctx, c, acct, folderID, accountID, serverUIDValidity, combinedPoke, flagOps, moveOps, h.switchFolder, h.sweep, sweepInterval, emit)
 	}
-	e.logger.Debug("watchOnce: entering poll loop", "account", acct.Name, "idle_cap", caps.Has(imap.CapIdle), "idle_enabled", acct.IDLEEnabled, "interval", pollInterval)
+	idleEnabled := acct.IDLEEnabled == nil || *acct.IDLEEnabled
+	e.logger.Debug("watchOnce: entering poll loop", "account", acct.Name, "idle_cap", caps.Has(imap.CapIdle), "idle_enabled", idleEnabled, "interval", pollInterval)
 	return e.pollLoop(ctx, c, acct, folderID, accountID, serverUIDValidity, combinedPoke, flagOps, moveOps, h.switchFolder, h.sweep, sweepInterval, pollInterval, emit)
 }
 

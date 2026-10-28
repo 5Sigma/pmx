@@ -15,6 +15,7 @@ type Daemon struct {
 	CheckInterval        time.Duration `koanf:"check_interval"`
 	NotificationsEnabled bool          `koanf:"notifications_enabled"`
 	NotifyFolders        []string      `koanf:"notify_folders"`
+	IDLEEnabled          *bool         `koanf:"idle_enabled"`
 }
 
 type General struct {
@@ -66,7 +67,7 @@ type Account struct {
 	IMAPPort          int    `koanf:"imap_port"`
 	IMAPTLS           bool   `koanf:"imap_tls"`
 	IMAPTLSSkipVerify bool   `koanf:"imap_tls_skip_verify"`
-	IDLEEnabled       bool   `koanf:"idle_enabled"`
+	IDLEEnabled       *bool  `koanf:"idle_enabled"`
 	SMTPHost          string `koanf:"smtp_host"`
 	SMTPPort          int    `koanf:"smtp_port"`
 	SMTPTLS           bool   `koanf:"smtp_tls"`

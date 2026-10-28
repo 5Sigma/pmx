@@ -249,7 +249,8 @@ func TestMoveToTrash_NotWatching(t *testing.T) {
 // long enough for us to inspect the return value.
 func TestMoveToTrash_Enqueue(t *testing.T) {
 	_, acct := startMockServer(t)
-	acct.IDLEEnabled = false
+	idleOff := false
+	acct.IDLEEnabled = &idleOff
 	_, engine := openTestEngine(t, acct)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -276,7 +277,8 @@ func TestMoveToTrash_Enqueue(t *testing.T) {
 // nil — the drop-on-full path must never surface an error to callers.
 func TestMoveToTrash_QueueFullDropsSilently(t *testing.T) {
 	_, acct := startMockServer(t)
-	acct.IDLEEnabled = false
+	idleOff := false
+	acct.IDLEEnabled = &idleOff
 	_, engine := openTestEngine(t, acct)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -321,7 +323,8 @@ func TestMoveToArchive_NotWatching(t *testing.T) {
 // is running for the account, meaning the op was accepted onto the moveOps channel.
 func TestMoveToArchive_Enqueue(t *testing.T) {
 	_, acct := startMockServer(t)
-	acct.IDLEEnabled = false
+	idleOff := false
+	acct.IDLEEnabled = &idleOff
 	_, engine := openTestEngine(t, acct)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -347,7 +350,8 @@ func TestMoveToArchive_Enqueue(t *testing.T) {
 // nil — the drop-on-full path must never surface an error to callers.
 func TestMoveToArchive_QueueFullDropsSilently(t *testing.T) {
 	_, acct := startMockServer(t)
-	acct.IDLEEnabled = false
+	idleOff := false
+	acct.IDLEEnabled = &idleOff
 	_, engine := openTestEngine(t, acct)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

@@ -37,7 +37,22 @@ func New(cfg *config.Config, store mail.MessageStore, syncEng *mailsync.Engine, 
 }
 
 // Run starts the daemon loop. Blocks until ctx is cancelled.
+// When idle_enabled is true (the default), it uses IMAP IDLE via Watch().
+// When false, it falls back to the ticker-based polling loop.
 func (d *Daemon) Run(ctx context.Context) error {
+	if d.cfg.Daemon.IDLEEnabled != nil && !*d.cfg.Daemon.IDLEEnabled {
+		return d.runPoll(ctx)
+	}
+	return d.runIdle(ctx)
+}
+
+// RunOnce performs a single cycle (for --once flag / debugging).
+func (d *Daemon) RunOnce(ctx context.Context) {
+	d.cycle(ctx)
+}
+
+// runPoll is the original ticker-based loop. Used when idle_enabled = false.
+func (d *Daemon) runPoll(ctx context.Context) error {
 	t := time.NewTicker(d.cfg.Daemon.CheckInterval)
 	defer t.Stop()
 
@@ -52,9 +67,105 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 }
 
-// RunOnce performs a single cycle (for --once flag / debugging).
-func (d *Daemon) RunOnce(ctx context.Context) {
+// runIdle uses IMAP IDLE (via Watch) for push-based sync. One goroutine per
+// account calls Watch(); their events are fanned into a shared channel. The
+// main loop fires notifications on new-mail events and drains the outbox on a
+// send ticker.
+func (d *Daemon) runIdle(ctx context.Context) error {
+	// Seed the DB and fire initial notifications before Watch takes over.
 	d.cycle(ctx)
+	if ctx.Err() != nil {
+		return nil
+	}
+
+	// Buffered to absorb bursts from multiple accounts without blocking Watch.
+	events := make(chan mailsync.Event, 64)
+
+	// Launch one Watch goroutine per account. Each Watch call closes its own
+	// events channel on return, so we forward to the shared channel instead of
+	// passing it directly.
+	for _, acct := range d.cfg.Accounts {
+		acct := acct // capture for goroutine
+		acctEvents := make(chan mailsync.Event, 32)
+		go func() {
+			// Forward from per-account channel to shared fan-in channel.
+			// This goroutine exits when Watch closes acctEvents.
+			for ev := range acctEvents {
+				select {
+				case events <- ev:
+				case <-ctx.Done():
+					// Drain acctEvents so Watch's sender doesn't block.
+					for range acctEvents {
+					}
+					return
+				}
+			}
+		}()
+		go func() {
+			if err := d.syncEng.Watch(
+				ctx, acct,
+				d.cfg.General.PollInterval,
+				d.cfg.General.SweepInterval,
+				acctEvents,
+			); err != nil {
+				d.logger.Warn("Watch exited", "acct", acct.Name, "err", err)
+			}
+		}()
+	}
+
+	sendTicker := time.NewTicker(d.cfg.General.SendInterval)
+	defer sendTicker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+
+		case ev := <-events:
+			d.handleWatchEvent(ctx, ev)
+
+		case <-sendTicker.C:
+			for _, acct := range d.cfg.Accounts {
+				if ctx.Err() != nil {
+					return nil
+				}
+				d.sendOne(ctx, acct)
+			}
+		}
+	}
+}
+
+// handleWatchEvent processes a single event emitted by Watch. On any event
+// that indicates new messages (FolderDone with Added > 0, or SyncCompleted),
+// it calls notifyNewMail for the relevant account and persists state.
+func (d *Daemon) handleWatchEvent(ctx context.Context, ev mailsync.Event) {
+	var acctName string
+	var notify bool
+
+	switch e := ev.(type) {
+	case mailsync.FolderDone:
+		acctName = e.Account
+		notify = e.Added > 0
+	case mailsync.SyncCompleted:
+		acctName = e.Account
+		notify = true
+	default:
+		return
+	}
+
+	if !notify {
+		return
+	}
+
+	acct := d.cfg.AccountByName(acctName)
+	if acct == nil {
+		return
+	}
+
+	notifyNewMail(ctx, d.store, *acct, d.cfg, d.state, d.notifier, d.logger)
+	if err := d.state.Save(); err != nil {
+		d.logger.Warn("state save failed", "err", err)
+	}
 }
 
 func (d *Daemon) cycle(ctx context.Context) {

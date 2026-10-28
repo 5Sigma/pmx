@@ -2,12 +2,15 @@ package config
 
 import "time"
 
+func boolPtr(b bool) *bool { return &b }
+
 func Default() *Config {
 	return &Config{
 		Daemon: Daemon{
 			CheckInterval:        15 * time.Minute,
 			NotificationsEnabled: true,
 			NotifyFolders:        []string{"inbox"},
+			IDLEEnabled:          boolPtr(true),
 		},
 		General: General{
 			DefaultAccount:  "",
@@ -58,6 +61,19 @@ func applyAccountDefaults(cfg *Config) {
 		if cfg.Accounts[i].OAuthTenant == "" {
 			cfg.Accounts[i].OAuthTenant = "common"
 		}
+		if cfg.Accounts[i].IDLEEnabled == nil {
+			b := true
+			cfg.Accounts[i].IDLEEnabled = &b
+		}
+	}
+}
+
+// applyDaemonDefaults fills in daemon-level *bool fields that koanf cannot
+// unmarshal into pointer types from scalar defaults.
+func applyDaemonDefaults(cfg *Config) {
+	if cfg.Daemon.IDLEEnabled == nil {
+		b := true
+		cfg.Daemon.IDLEEnabled = &b
 	}
 }
 
@@ -71,6 +87,7 @@ func defaultsMap() map[string]any {
 			"check_interval":        d.Daemon.CheckInterval.String(),
 			"notifications_enabled": d.Daemon.NotificationsEnabled,
 			"notify_folders":        d.Daemon.NotifyFolders,
+			"idle_enabled":          true,
 		},
 		"general": map[string]any{
 			"default_account":   d.General.DefaultAccount,

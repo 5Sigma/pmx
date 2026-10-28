@@ -71,7 +71,8 @@ func waitEvent[T mailsync.Event](ctx context.Context, ch <-chan mailsync.Event) 
 // and expects FolderDone{Added>=1} within 500ms.
 func TestWatchPollFallback(t *testing.T) {
 	srv, acct := startMockServer(t)
-	acct.IDLEEnabled = false
+	idleOff := false
+	acct.IDLEEnabled = &idleOff
 	_, engine := openTestEngine(t, acct)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -107,7 +108,8 @@ func TestWatchPollFallback(t *testing.T) {
 // ticker would fire.
 func TestWatchManualRefresh(t *testing.T) {
 	srv, acct := startMockServer(t)
-	acct.IDLEEnabled = false
+	idleOff := false
+	acct.IDLEEnabled = &idleOff
 	_, engine := openTestEngine(t, acct)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -147,7 +149,8 @@ func TestWatchManualRefresh(t *testing.T) {
 // closes the events channel, with WatchStopped as the last event.
 func TestWatchCancellation(t *testing.T) {
 	_, acct := startMockServer(t)
-	acct.IDLEEnabled = false
+	idleOff := false
+	acct.IDLEEnabled = &idleOff
 	_, engine := openTestEngine(t, acct)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -217,7 +220,8 @@ func TestRefreshNotWatching(t *testing.T) {
 // invariant more reliably.
 func TestWatchMarkSeenAppliesServerFlag(t *testing.T) {
 	_, acct := startMockServer(t)
-	acct.IDLEEnabled = false
+	idleOff := false
+	acct.IDLEEnabled = &idleOff
 	st, engine := openTestEngine(t, acct)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -289,7 +293,8 @@ func TestWatchMarkSeenAppliesServerFlag(t *testing.T) {
 // the EXISTS push should trigger a sync; otherwise the test is skipped.
 func TestWatchIDLE(t *testing.T) {
 	srv, acct := startMockServer(t)
-	acct.IDLEEnabled = true
+	idleOn := true
+	acct.IDLEEnabled = &idleOn
 	_, engine := openTestEngine(t, acct)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -336,7 +341,8 @@ func TestWatchIDLE(t *testing.T) {
 // rather than the local store (which is updated optimistically by the caller).
 func TestWatchMoveToTrashMovesMessageToTrash(t *testing.T) {
 	srv, acct := startMockServer(t)
-	acct.IDLEEnabled = false
+	idleOff := false
+	acct.IDLEEnabled = &idleOff
 	st, engine := openTestEngine(t, acct)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -429,7 +435,8 @@ func TestWatchMoveToTrashMovesMessageToTrash(t *testing.T) {
 // special-use discovery maps mail.RoleArchive to "Archive" automatically.
 func TestWatchMoveToArchiveMovesMessageToArchive(t *testing.T) {
 	srv, acct := startMockServer(t)
-	acct.IDLEEnabled = false
+	idleOff := false
+	acct.IDLEEnabled = &idleOff
 	st, engine := openTestEngine(t, acct)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

@@ -25,7 +25,8 @@ func TestSwitchFolder_NotWatching(t *testing.T) {
 // FolderDone event for that folder. The test polls mode to avoid relying on IDLE.
 func TestSwitchFolder(t *testing.T) {
 	_, acct := startMockServer(t)
-	acct.IDLEEnabled = false
+	idleOff := false
+	acct.IDLEEnabled = &idleOff
 	_, engine := openTestEngine(t, acct)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -85,7 +86,8 @@ func TestSwitchFolder(t *testing.T) {
 // nil (accepted) when a watcher is running for the account.
 func TestSwitchFolder_ReturnsNilWhenWatcherAlive(t *testing.T) {
 	_, acct := startMockServer(t)
-	acct.IDLEEnabled = false
+	idleOff := false
+	acct.IDLEEnabled = &idleOff
 	_, engine := openTestEngine(t, acct)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -110,7 +112,8 @@ func TestSwitchFolder_ReturnsNilWhenWatcherAlive(t *testing.T) {
 // its initial sync, all six fixture folders are stored with the correct roles.
 func TestWatchOnce_PersistsAllFolders(t *testing.T) {
 	_, acct := startMockServer(t)
-	acct.IDLEEnabled = false
+	idleOff := false
+	acct.IDLEEnabled = &idleOff
 	st, engine := openTestEngine(t, acct)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

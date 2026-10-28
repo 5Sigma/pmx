@@ -57,6 +57,7 @@ func LoadFrom(path string) (*Config, error) {
 	}
 
 	applyAccountDefaults(&cfg)
+	applyDaemonDefaults(&cfg)
 	return &cfg, cfg.Validate()
 }
 

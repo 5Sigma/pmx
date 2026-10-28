@@ -114,7 +114,7 @@ func runTUI() error {
 			"imap_host", initialAcct.IMAPHost,
 			"imap_port", initialAcct.IMAPPort,
 			"imap_tls", initialAcct.IMAPTLS,
-			"idle_enabled", initialAcct.IDLEEnabled,
+			"idle_enabled", initialAcct.IDLEEnabled == nil || *initialAcct.IDLEEnabled,
 		)
 	} else {
 		logger.Warn("no account resolved; sync disabled")
