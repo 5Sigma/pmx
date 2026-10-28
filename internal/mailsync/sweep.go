@@ -77,6 +77,15 @@ func (e *Engine) reconcileFolderList(
 		localByName[f.Name] = f
 	}
 
+	// An empty server list paired with existing local folders almost certainly
+	// means the mailbox LIST failed upstream. Skip the whole reconcile rather than
+	// hiding every local folder.
+	if len(serverMailboxes) == 0 && len(localFolders) > 0 {
+		e.logger.Warn("reconcileFolderList: server returned no mailboxes while local folders exist; skipping",
+			"account", acct.Name, "local", len(localFolders))
+		return nil
+	}
+
 	// Classify: removed = local names absent from server.
 	//           added   = server names absent from local.
 	var removed []*mail.Folder

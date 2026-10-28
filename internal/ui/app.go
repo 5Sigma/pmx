@@ -625,11 +625,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.pendingFolderSwitch = ""
 			}
 		}
-		return m, tea.Batch(
+		cmds := []tea.Cmd{
 			m.top().Init(),
 			loadFolderCountsCmd(m.store, m.curFolder),
-			loadFoldersCmd(m.store, m.accountID),
-		)
+		}
+		if msg.Final {
+			cmds = append(cmds, loadFoldersCmd(m.store, m.accountID))
+		}
+		return m, tea.Batch(cmds...)
 
 	case spinner.TickMsg:
 		// Only advance the spinner while a sync is in flight. When idle we

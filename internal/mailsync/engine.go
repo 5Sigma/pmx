@@ -404,7 +404,8 @@ func (e *Engine) watchOnce(ctx context.Context, acct config.Account, authFn func
 	// Discover all mailboxes and build the specialUse map from SPECIAL-USE attrs.
 	mailboxList, err := folders.List(c)
 	if err != nil {
-		e.logger.Warn("watchOnce: mailbox list failed", "account", acct.Name, "err", err)
+		e.logger.Warn("watchOnce: mailbox list failed; aborting iteration", "account", acct.Name, "err", err)
+		return fmt.Errorf("list mailboxes: %w", err)
 	}
 
 	// Build specialUse map and persist all mailbox rows.
