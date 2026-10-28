@@ -354,6 +354,11 @@ func (c *composeView) reEnterEditor() tea.Cmd {
 // message, and pops back on success. Any failure leaves the view on the
 // preview stage with an error banner.
 func (c *composeView) confirmSend() (View, tea.Cmd) {
+	// Guard against a second Enter arriving before Pop() is processed. Once we
+	// leave composeStagePreview the input-drop path at the top of Update()
+	// absorbs any stray keys until the view is popped.
+	c.stage = composeStageEditing
+
 	if c.store == nil {
 		c.err = "no mail store available"
 		return c, nil
