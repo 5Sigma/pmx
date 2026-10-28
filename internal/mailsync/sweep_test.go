@@ -567,6 +567,44 @@ func TestReconcile_NoChangeWhenServerAndLocalMatch(t *testing.T) {
 	}
 }
 
+// TestReconcile_EmptyServerListIsNoop verifies that when the server returns no
+// mailboxes but local folders already exist, reconcileFolderList skips the
+// hide pass entirely. This guards against a transient folders.List failure
+// (e.g. mid-reconnect) silently hiding every local folder.
+func TestReconcile_EmptyServerListIsNoop(t *testing.T) {
+	_, st, engine, c, acct, accountID := openSweepFixture(t)
+
+	// Seed local folders.
+	for _, name := range []string{"INBOX", "Sent", "Archive"} {
+		if _, err := st.EnsureFolder(accountID, name); err != nil {
+			t.Fatalf("EnsureFolder(%q): %v", name, err)
+		}
+	}
+
+	// Server returns nothing (simulates a failed LIST).
+	evs, err := runReconcile(t, engine, c, acct, accountID, nil, time.Minute)
+	if err != nil {
+		t.Fatalf("reconcileFolderList: %v", err)
+	}
+
+	// No structural events — the noop guard must have fired.
+	for _, ev := range evs {
+		switch ev.(type) {
+		case FolderAdded, FolderRenamed, FolderDisappeared:
+			t.Errorf("unexpected event when server list is empty: %T %+v", ev, ev)
+		}
+	}
+
+	// All local folders must still be visible (not hidden).
+	visible, err := st.ListFolders(accountID)
+	if err != nil {
+		t.Fatalf("ListFolders: %v", err)
+	}
+	if len(visible) != 3 {
+		t.Errorf("want 3 visible folders, got %d", len(visible))
+	}
+}
+
 // TestReconcile_GraceStillActiveDoesNotDelete verifies that a folder hidden
 // within the grace period is NOT deleted on the next reconcile cycle — it
 // emits no FolderDisappeared event again (it's already hidden).
