@@ -109,6 +109,9 @@ func newComposeViewSeeded(cfg *config.Config, store mail.MessageStore, sender *m
 		if len(seed.Bcc) > 0 {
 			c.form.SetBcc(seed.Bcc)
 		}
+		if len(seed.Cc) > 0 || len(seed.Bcc) > 0 {
+			c.form.SetShowAdvanced(true)
+		}
 		if seed.Subject != "" {
 			c.form.SetSubject(seed.Subject)
 		}
@@ -580,18 +583,10 @@ func (c *composeView) renderForm() string {
 		Padding(1, 0).
 		Render(c.form.View())
 
-	// Footer — key hints on the overlay color.
-	footer := lipgloss.NewStyle().
-		Background(styles.ColorOverlay).
-		Width(innerW).
-		Render(c.form.FooterView())
-
 	inner := lipgloss.JoinVertical(lipgloss.Left,
 		titleBar,
 		sep,
 		fieldArea,
-		sep,
-		footer,
 	)
 
 	panel := lipgloss.NewStyle().
@@ -1092,6 +1087,7 @@ func (c *composeView) KeyMap() keymap.KeyMap {
 		return keymap.KeyMap{
 			Primary: []keymap.Binding{
 				{Key: "tab", Desc: "next field"},
+				{Key: "ctrl+a", Desc: "advanced"},
 				{Key: "enter", DisplayKey: "↵", Desc: "open editor"},
 				{Key: "esc", Desc: "cancel"},
 			},

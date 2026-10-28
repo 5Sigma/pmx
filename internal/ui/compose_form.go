@@ -61,20 +61,21 @@ const (
 // composeForm is the custom form model. Nothing is bound by pointer; the
 // outer composeView reads values back through FromAccount / ToAddr / etc.
 type composeForm struct {
-	fields   []formField
-	focused  int
-	state    formState
-	accounts []config.Account
-	fromIdx  int
-	to       *compose.ChipInput
-	cc       *compose.ChipInput
-	bcc      *compose.ChipInput
-	subject  textinput.Model
-	markdown bool
-	themes   []themes.Theme
-	themeIdx int
-	width    int
-	err      string
+	fields       []formField
+	focused      int
+	state        formState
+	accounts     []config.Account
+	fromIdx      int
+	to           *compose.ChipInput
+	cc           *compose.ChipInput
+	bcc          *compose.ChipInput
+	subject      textinput.Model
+	markdown     bool
+	showAdvanced bool
+	themes       []themes.Theme
+	themeIdx     int
+	width        int
+	err          string
 }
 
 // newComposeForm wires up the fields and resolves the default-account index
@@ -233,6 +234,21 @@ func (f *composeForm) Update(msg tea.Msg) (*composeForm, tea.Cmd) {
 		return f, f.moveFocus(+1)
 	case "up":
 		return f, f.moveFocus(-1)
+	case "ctrl+a":
+		prevField := f.fields[f.focused]
+		f.showAdvanced = !f.showAdvanced
+		f.fields = f.computeFields()
+		// Snap focus off Cc/Bcc when they're being hidden.
+		if !f.showAdvanced && (prevField == fieldCc || prevField == fieldBcc) {
+			for i, fl := range f.fields {
+				if fl == fieldSubject {
+					f.focused = i
+					break
+				}
+			}
+			_ = f.applyFocus()
+		}
+		return f, nil
 	}
 
 	// Per-field dispatch.
@@ -359,14 +375,24 @@ func (f *composeForm) cycleTheme(delta int) {
 	f.themeIdx = (f.themeIdx + delta + n) % n
 }
 
-// computeFields returns the ordered field list. The Theme row is only present
-// when markdown mode is enabled.
+// computeFields returns the ordered field list. Cc and Bcc are only included
+// when showAdvanced is true; Theme is only appended when markdown is enabled.
 func (f *composeForm) computeFields() []formField {
-	fields := []formField{fieldFrom, fieldTo, fieldCc, fieldBcc, fieldSubject, fieldMarkdown}
+	fields := []formField{fieldFrom, fieldTo}
+	if f.showAdvanced {
+		fields = append(fields, fieldCc, fieldBcc)
+	}
+	fields = append(fields, fieldSubject, fieldMarkdown)
 	if f.markdown {
 		fields = append(fields, fieldTheme)
 	}
 	return fields
+}
+
+// SetShowAdvanced controls whether the Cc/Bcc rows are visible.
+func (f *composeForm) SetShowAdvanced(v bool) {
+	f.showAdvanced = v
+	f.fields = f.computeFields()
 }
 
 // submit validates and transitions to formStateSubmitted when the form is
@@ -520,23 +546,6 @@ func (f *composeForm) View() string {
 	return strings.Join(rows, "\n")
 }
 
-// FooterView returns the key-hint strip that composeView drapes along the
-// bottom of the modal. Painted entirely on ColorOverlay so it reads as a
-// distinct bottom bar.
-func (f *composeForm) FooterView() string {
-	bg := lipgloss.NewStyle().Background(styles.ColorOverlay)
-	key := func(k, label string) string {
-		return styles.StatusKey.Render(k) +
-			bg.Foreground(styles.ColorSubdued).Render(" "+label)
-	}
-	sep := bg.Foreground(styles.ColorBorder).Render("   ·   ")
-	return bg.Padding(0, 2).Render(
-		key("tab", "next") + sep +
-			key("↵", "open editor") + sep +
-			key("esc", "cancel"),
-	)
-}
-
 // renderRow is the shared row shell: a focus accent in the gutter, a
 // fixed-width label column, and whatever value renderer the field type
 // provides. Every element is painted on ColorSurface so the row tiles
@@ -623,10 +632,23 @@ func (f *composeForm) renderValue(field formField, focused bool) string {
 // renderChipValue wraps the chip-input widget in the surface backdrop so
 // its pills + live input tile seamlessly with the rest of the field area,
 // matching what renderInputValue does for plain textinputs.
+//
+// ChipInput.View() may emit a multi-line string when chips wrap to a second
+// row or the placeholder needs its own row. The row shell (renderRow) only
+// prepends the 14-cell prefix once, so we manually indent every continuation
+// line to align it with the value column.
 func (f *composeForm) renderChipValue(chip *compose.ChipInput, _ bool) string {
-	return lipgloss.NewStyle().
-		Background(styles.ColorSurface).
-		Render(chip.View())
+	surf := lipgloss.NewStyle().Background(styles.ColorSurface)
+	pad := surf.Render(strings.Repeat(" ", formPrefixW))
+	lines := strings.Split(chip.View(), "\n")
+	for i, l := range lines {
+		if i == 0 {
+			lines[i] = surf.Render(l)
+		} else {
+			lines[i] = pad + surf.Render(l)
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // renderFromValue draws the `◀ <label> ▶` cycler. Arrows are mint when
