@@ -1,0 +1,13 @@
+X-PMX-Mock-Mailbox: INBOX
+X-PMX-Mock-Flags: \Seen
+From: Alice Example <alice@example.com>
+To: user@localhost
+Subject: Welcome to Phreakmx
+Date: Mon, 20 Oct 2025 09:00:00 +0000
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+Message-ID: <welcome-001@mock.local>
+
+Welcome to Phreakmx! This is your new TUI email client.
+Everything you see here is a fixture loaded from testdata.
+Reply to test the SMTP to IMAP delivery flow.

@@ -1,0 +1,55 @@
+[general]
+default_account = "work"
+log_level = "debug"
+
+[theme]
+primary = "#FF0000"
+accent = "#00FF00"
+muted = "#333333"
+fg = "#FFFFFF"
+dim_fg = "#777777"
+error = "#FF4444"
+warning = "#FFAA00"
+success = "#44FF44"
+selection_bg = "#111122"
+selection_fg = "#FFFFFF"
+unread_fg = "#00FF00"
+
+[features]
+alt_screen = false
+mouse = false
+filter_enabled = false
+show_status_bar = false
+confirm_quit = true
+
+[keys]
+quit = ["x"]
+open = ["o"]
+back = ["b"]
+scroll_up = ["K"]
+scroll_down = ["J"]
+filter = ["?"]
+refresh = ["R"]
+
+[[accounts]]
+name = "work"
+email = "work@example.com"
+imap_host = "imap.example.com"
+imap_port = 993
+imap_tls = true
+smtp_host = "smtp.example.com"
+smtp_port = 465
+smtp_tls = true
+auth = "password"
+
+[[accounts]]
+name = "personal"
+email = "me@example.org"
+imap_host = "mail.example.org"
+imap_port = 143
+imap_tls = false
+smtp_host = "smtp.example.org"
+smtp_port = 587
+smtp_tls = false
+auth = "password"
+password_command = "echo secret"

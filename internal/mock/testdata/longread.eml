@@ -1,0 +1,37 @@
+X-PMX-Mock-Mailbox: INBOX
+From: Dave Example <dave@example.com>
+To: user@localhost
+Subject: Interesting article I found
+Date: Fri, 24 Oct 2025 16:00:00 +0000
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+Message-ID: <longread-005@mock.local>
+
+Hey, I came across this fascinating article about distributed systems
+and thought you might find it useful for the project.
+
+The article covers several key topics:
+
+1. Consensus algorithms and why Raft is simpler than Paxos in practice
+2. The CAP theorem and its real-world implications
+3. How modern databases trade consistency for availability
+4. Vector clocks and their role in causality tracking
+5. CRDTs for conflict-free data structures
+
+Some highlights from the piece:
+
+Raft was designed specifically to be understandable, and that goal
+shows in its design. Leader election, log replication, and safety
+are cleanly separated concerns.
+
+The CAP theorem is often misunderstood. Network partitions are not
+optional in a distributed system — they will happen. The real choice
+is between consistency and availability during a partition.
+
+Modern databases like CockroachDB and TiKV have shown that it is
+possible to build strongly consistent systems that scale horizontally,
+though there are always latency trade-offs involved.
+
+I hope you find it as interesting as I did.
+
+Dave

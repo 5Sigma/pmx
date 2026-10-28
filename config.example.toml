@@ -1,0 +1,148 @@
+# pmx example configuration
+# Copy to ~/.config/pmx/config.toml and edit to taste.
+# Run `pmx config path` to print the resolved location on your system.
+
+[general]
+# Which account to open on launch. Must match an [[accounts]] name below.
+default_account = "personal"
+
+# Log verbosity: trace, debug, info, warn, error
+log_level = "info"
+
+# poll_interval = "2m"  # fallback poll interval when IDLE is unavailable
+
+# How often to drain the outbox and retry failed messages (min 10s).
+# send_interval = "1m"
+
+# Maximum delivery attempts per message before parking the row permanently.
+# send_max_attempts = 5
+
+
+[daemon]
+# How often pmxd checks all accounts for new mail and drains the outbox.
+check_interval = "15m"
+
+# Send desktop notifications when new messages arrive.
+# notifications_enabled = true
+
+# Which folder roles to watch for notifications (default: inbox only).
+# notify_folders = ["inbox"]
+
+
+[theme]
+# All values are hex color codes.
+primary      = "#7D56F4"  # headers, titles, focused borders
+accent       = "#73F59F"  # highlights
+muted        = "#3C3C3C"  # subtle backgrounds (status bar, inactive borders)
+fg           = "#FAFAFA"  # primary foreground
+dim_fg       = "#888888"  # secondary foreground (labels, separators)
+error        = "#F7768E"
+warning      = "#E0AF68"
+success      = "#9ECE6A"
+selection_bg = "#2A2A3C"  # selected list item background
+selection_fg = "#FAFAFA"  # selected list item foreground
+unread_fg    = "#73F59F"  # unread message indicator
+
+
+[features]
+# Use the terminal's alternate screen (clears on exit, no scroll-back).
+alt_screen = true
+
+# Enable mouse support (click to select, scroll).
+mouse = true
+
+# Allow filtering the message list by typing.
+filter_enabled = true
+
+# Show the key-hint bar at the bottom of the screen.
+show_status_bar = true
+
+# Ask for confirmation before quitting.
+confirm_quit = false
+
+
+[keys]
+# Each action accepts one or more key bindings as a list.
+quit        = ["q", "ctrl+c"]
+open        = ["enter"]
+back        = ["esc", "backspace"]
+scroll_up   = ["up", "k"]
+scroll_down = ["down", "j"]
+filter      = ["/"]
+refresh     = ["r"]
+
+
+# ---------------------------------------------------------------------------
+# Mail accounts
+# Add one [[accounts]] block per mailbox. The name must be unique.
+# ---------------------------------------------------------------------------
+
+[[accounts]]
+name      = "personal"
+email     = "you@example.com"
+imap_host = "imap.example.com"
+imap_port = 993
+imap_tls  = true
+# imap_tls_skip_verify = false  # set true for local bridges (e.g. ProtonMail Bridge) that use self-signed certs
+smtp_host = "smtp.example.com"
+smtp_port = 465
+smtp_tls  = true
+# smtp_starttls = false       # set true for port 587 STARTTLS; mutually exclusive with smtp_tls
+# smtp_tls_skip_verify = false  # set true for self-signed certs (e.g. local bridges)
+# Well-known folder overrides — pmx auto-detects these via IMAP SPECIAL-USE
+# (RFC 6154) on connect. Set only if your server doesn't advertise them or
+# you want to override the detected value.
+# sent_mailbox    = "Sent"     # common: "Sent", "[Gmail]/Sent Mail", "Sent Items"
+# trash_mailbox   = "Trash"    # common: "Trash", "[Gmail]/Trash", "Deleted Items"
+# drafts_mailbox  = "Drafts"   # common: "Drafts", "[Gmail]/Drafts"
+# archive_mailbox = "Archive"  # common: "Archive", "[Gmail]/All Mail"
+# junk_mailbox    = "Junk"     # common: "Junk", "Spam", "[Gmail]/Spam"
+
+# auth: "password" uses your system keyring (or password_command below).
+#       "oauth2"   uses OAuth2 token-based authentication (e.g. Office 365).
+#                  Requires oauth_client_id and oauth_token_keyring_ref.
+#                  Run `pmx account add --provider o365` to register credentials
+#                  and populate the keyring entry on first use.
+auth = "password"
+
+# Optional: run a shell command to retrieve the password instead of the
+# system keyring. The command's stdout (trailing newline stripped) is used.
+# Examples:
+#   password_command = "pass show mail/personal"
+#   password_command = "secret-tool lookup account personal"
+#   password_command = "op read op://Personal/email/password"
+password_command = ""
+
+# idle_enabled = true  # use IMAP IDLE for push; falls back to polling if unsupported
+
+
+# Example second account (password auth) — remove or duplicate as needed.
+# [[accounts]]
+# name      = "work"
+# email     = "you@company.com"
+# imap_host = "imap.company.com"
+# imap_port = 993
+# imap_tls  = true
+# smtp_host = "smtp.company.com"
+# smtp_port = 587
+# smtp_tls  = true
+# auth      = "password"
+
+
+# Example Office 365 account using OAuth2.
+# Run `pmx account add --provider o365` after filling in oauth_client_id to
+# complete the browser-based consent flow and store the token in the keyring.
+# [[accounts]]
+# name                  = "work"
+# email                 = "user@contoso.com"
+# full_name             = "Your Name"
+# auth                  = "oauth2"
+# oauth_client_id       = "your-azure-app-client-id"
+# oauth_tenant          = "contoso.onmicrosoft.com"   # or "common"
+# oauth_token_keyring_ref = "work"                    # populated by `pmx account add --provider o365`
+# imap_host             = "outlook.office365.com"
+# imap_port             = 993
+# imap_tls              = true
+# smtp_host             = "smtp.office365.com"
+# smtp_port             = 587
+# smtp_starttls         = true

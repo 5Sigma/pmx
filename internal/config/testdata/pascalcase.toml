@@ -1,0 +1,16 @@
+[General]
+DefaultAccount = "work"
+
+[Theme]
+Primary = "#112233"
+
+[[accounts]]
+name      = "work"
+email     = "work@example.com"
+imap_host = "imap.example.com"
+imap_port = 993
+imap_tls  = true
+smtp_host = "smtp.example.com"
+smtp_port = 465
+smtp_tls  = true
+auth      = "password"

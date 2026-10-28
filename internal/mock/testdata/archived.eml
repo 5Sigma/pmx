@@ -1,0 +1,15 @@
+X-PMX-Mock-Mailbox: Archive
+X-PMX-Mock-Flags: \Seen
+From: Eve Example <eve@example.com>
+To: user@localhost
+Subject: Old project docs
+Date: Sat, 01 Jan 2025 10:00:00 +0000
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+Message-ID: <archived-006@mock.local>
+
+Hi, here are the docs from the old project.
+I archived these for reference — feel free to delete
+if you no longer need them.
+
+Eve

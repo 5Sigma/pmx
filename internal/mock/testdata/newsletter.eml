@@ -1,0 +1,34 @@
+X-PMX-Mock-Mailbox: INBOX
+From: Newsletter <newsletter@example.com>
+To: user@localhost
+Subject: Your weekly digest
+Date: Wed, 22 Oct 2025 08:00:00 +0000
+MIME-Version: 1.0
+Message-ID: <newsletter-003@mock.local>
+Content-Type: multipart/alternative; boundary="boundary-newsletter"
+
+--boundary-newsletter
+Content-Type: text/plain; charset=utf-8
+
+Here is your weekly digest in plain text.
+
+* New Go release announced
+* TUI frameworks gaining adoption
+* Email clients making a comeback
+
+Until next week!
+
+--boundary-newsletter
+Content-Type: text/html; charset=utf-8
+
+<html><body>
+<h1>Your Weekly Digest</h1>
+<ul>
+<li>New Go release announced</li>
+<li>TUI frameworks gaining adoption</li>
+<li>Email clients making a comeback</li>
+</ul>
+<p>Until next week!</p>
+</body></html>
+
+--boundary-newsletter--

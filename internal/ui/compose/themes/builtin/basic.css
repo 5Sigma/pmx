@@ -1,0 +1,57 @@
+/* pmx basic email theme — inlined via douceur, element selectors only */
+
+body {
+  margin: 0 auto;
+  padding: 20px;
+  max-width: 680px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  color: #222222;
+}
+
+a {
+  color: #0366d6;
+}
+
+code {
+  padding: 1px 4px;
+  background-color: #f4f4f4;
+  font-family: Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 14px;
+}
+
+pre {
+  padding: 12px;
+  background-color: #f4f4f4;
+  overflow-x: auto;
+  font-family: Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+pre code {
+  padding: 0;
+  background-color: transparent;
+}
+
+blockquote {
+  margin: 16px 0;
+  padding-left: 12px;
+  border-left: 3px solid #cccccc;
+  color: #555555;
+}
+
+table {
+  border-collapse: collapse;
+}
+
+th, td {
+  padding: 6px 10px;
+  border: 1px solid #dddddd;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+}

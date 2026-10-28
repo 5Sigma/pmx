@@ -1,0 +1,22 @@
+X-PMX-Mock-Mailbox: INBOX
+From: Carol Example <carol@example.com>
+To: user@localhost
+Subject: Check out this file
+Date: Thu, 23 Oct 2025 14:30:00 +0000
+MIME-Version: 1.0
+Message-ID: <attachment-004@mock.local>
+Content-Type: multipart/mixed; boundary="boundary-attachment"
+
+--boundary-attachment
+Content-Type: text/plain; charset=utf-8
+
+Hi, I have attached a small note for you.
+Let me know what you think!
+
+--boundary-attachment
+Content-Type: text/plain; charset=utf-8
+Content-Disposition: attachment; filename="note.txt"
+
+hello world
+
+--boundary-attachment--
