@@ -8,7 +8,7 @@
 
   outputs = { self, nixpkgs, flake-utils, ... }:
     let
-      overlay = import ./nix/overlay.nix;
+      overlay = import ./nix/overlay.nix self;
     in
     flake-utils.lib.eachDefaultSystem (system:
       let

@@ -17,6 +17,7 @@ import (
 	"github.com/5Sigma/pmx/internal/secrets"
 	"github.com/5Sigma/pmx/internal/store"
 	"github.com/5Sigma/pmx/internal/ui"
+	"github.com/5Sigma/pmx/internal/version"
 )
 
 // newLogger opens (or creates) the pmx log file and returns a slog.Logger
@@ -35,9 +36,10 @@ func newLogger() *slog.Logger {
 }
 
 var rootCmd = &cobra.Command{
-	Use:   "pmx",
-	Short: "Phreakmx — a terminal email client",
-	Long:  `Phreakmx (pmx) is a keyboard-driven terminal email client.`,
+	Use:     "pmx",
+	Short:   "Phreakmx — a terminal email client",
+	Long:    `Phreakmx (pmx) is a keyboard-driven terminal email client.`,
+	Version: version.String(),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runTUI()
 	},

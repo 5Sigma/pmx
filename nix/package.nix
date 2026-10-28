@@ -7,6 +7,7 @@
 , buildGoModule
 , makeWrapper
 , xdg-utils
+, gitRev ? "unknown"
 }:
 
 buildGoModule rec {
@@ -23,7 +24,10 @@ buildGoModule rec {
 
   env.CGO_ENABLED = "0";
 
-  ldflags = [ "-s" "-w" ];
+  ldflags = [
+    "-s" "-w"
+    "-X github.com/5Sigma/pmx/internal/version.Commit=${gitRev}"
+  ];
 
   nativeBuildInputs = [ makeWrapper ];
 

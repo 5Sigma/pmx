@@ -17,6 +17,7 @@ import (
 	"github.com/5Sigma/pmx/internal/pmxd"
 	"github.com/5Sigma/pmx/internal/secrets"
 	"github.com/5Sigma/pmx/internal/store"
+	"github.com/5Sigma/pmx/internal/version"
 )
 
 func main() {
@@ -76,6 +77,7 @@ func main() {
 	d := pmxd.New(cfg, msgStore, syncEng, sendEng, notifier, state, logger)
 
 	logger.Info("pmxd starting",
+		"version", version.String(),
 		"accounts", len(cfg.Accounts),
 		"interval", cfg.Daemon.CheckInterval,
 		"claimant", claimant,
