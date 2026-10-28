@@ -617,6 +617,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// know about accountID.
 		if cv, ok := msg.view.(*composeView); ok {
 			cv.SetSuggestFunc(m.buildContactSuggestFunc())
+			if m.activeAcct != nil {
+				cv.form.SetFromAccount(m.activeAcct.Email)
+			}
 		}
 		v := msg.view.SetSize(m.contentWidth(), m.contentHeight())
 		m.stack = append(m.stack, v)
