@@ -20,29 +20,24 @@
 
 ---
 
-pmx is a terminal email client built for people who live in the keyboard. It connects to any IMAP/SMTP server — including Gmail and Office 365 via OAuth2 — syncs your mail locally, and gets out of the way. No Electron. No mouse required. Just fast, distraction-free email in your terminal.
+pmx is a terminal email client built to be easy to use and polished.  Living in a terminal doesn't mean sacrifcing nice tools.
 
 ---
 
 ## Features
 
 **Zero-friction navigation**  
-A Vim-inspired modal interface with a [whichkey](https://github.com/folke/which-key.nvim)-style popup for every command. Hit `space` at any time to discover what's available — you never need to remember a cheat sheet.
+A Vim-inspired modal interface with a [whichkey](https://github.com/folke/which-key.nvim)-style popup for every command.
 
 **Multi-account, always in sync**  
-Manage multiple email accounts side by side. pmx syncs in the background using IMAP IDLE for push delivery where supported, falling back to polling automatically. An optional daemon (`pmxd`) keeps mail fresh even when the TUI isn't open.
+Manage multiple email accounts side by side. 
 
 **Write with your editor**  
-Compose flows through three stages: fill in the envelope (from, to, subject), write the body in `$EDITOR`, then preview with live markdown rendering before you send. Attach files. Toggle markdown on or off per message.
+Compose emails using your perferred CLI editor: neovim, vim, emacs, etc.
 
 **OAuth2 support built in**  
-Authenticate with Gmail or Office 365 through a browser-based OAuth2 PKCE flow. Tokens are stored in your system keyring — your credentials never touch config files.
+Authenticate with Gmail or Office 365 through a browser-based OAuth2 PKCE flow.  This is a *bring your own client ID* flow.
 
-**Folder and account drawers**  
-Slide-out panels give you instant access to folders and accounts without leaving your current view. Auto-detects inbox, sent, drafts, archive, and trash via RFC 6154 SPECIAL-USE attributes.
-
-**Polished status line**  
-A persistent header shows your active account, current folder, unread counts, and live sync progress. A context-aware status bar below always tells you what keys do what.
 
 ---
 
