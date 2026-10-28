@@ -334,6 +334,94 @@ func TestDrawer_ClosedViewIsEmpty(t *testing.T) {
 	}
 }
 
+// TestDrawer_BlockCurrentPreventsSelect verifies that when SetBlockCurrent(true)
+// is set, pressing Enter on the highlighted folder that matches currentFolderID
+// is a no-op (callback not fired, drawer stays open).
+func TestDrawer_BlockCurrentPreventsSelect(t *testing.T) {
+	var selected *mail.Folder
+	d := folderdrawer.New(func(f *mail.Folder) tea.Msg {
+		selected = f
+		return nil
+	})
+	folders := threeFixtureFolders()
+	d.SetFolders(folders)
+	d.SetBlockCurrent(true)
+	d.Open(1) // currentFolderID = 1 (INBOX); cursor positions on INBOX
+
+	enter := tea.KeyMsg{Type: tea.KeyEnter}
+	d.Update(enter)
+
+	if selected != nil {
+		t.Errorf("callback should not fire when blocking current folder, got %v", selected.Name)
+	}
+	if !d.IsOpen() {
+		t.Error("drawer should remain open when Enter on blocked folder")
+	}
+}
+
+// TestDrawer_BlockCurrentAllowsOtherFolders verifies that when SetBlockCurrent(true)
+// is set, pressing Enter on a non-current folder still fires the callback and
+// closes the drawer.
+func TestDrawer_BlockCurrentAllowsOtherFolders(t *testing.T) {
+	var selected *mail.Folder
+	d := folderdrawer.New(func(f *mail.Folder) tea.Msg {
+		selected = f
+		return nil
+	})
+	folders := threeFixtureFolders()
+	d.SetFolders(folders)
+	d.SetBlockCurrent(true)
+	d.Open(1) // currentFolderID = 1 (INBOX)
+
+	// Move cursor to Sent (ID=2).
+	d.Update(key('j'))
+
+	enter := tea.KeyMsg{Type: tea.KeyEnter}
+	cmd := d.Update(enter)
+	if cmd != nil {
+		cmd()
+	}
+
+	if selected == nil {
+		t.Fatal("callback should fire for non-current folder")
+	}
+	if selected.ID != 2 {
+		t.Errorf("want Sent (ID=2), got ID=%d", selected.ID)
+	}
+	if d.IsOpen() {
+		t.Error("drawer should close after selecting a non-blocked folder")
+	}
+}
+
+// TestDrawer_BlockCurrentClearedOnClose verifies that Close resets the block
+// flag so a subsequent Open without SetBlockCurrent(true) operates normally.
+func TestDrawer_BlockCurrentClearedOnClose(t *testing.T) {
+	var selected *mail.Folder
+	d := folderdrawer.New(func(f *mail.Folder) tea.Msg {
+		selected = f
+		return nil
+	})
+	folders := threeFixtureFolders()
+	d.SetFolders(folders)
+
+	// First open: block current, then close without selecting.
+	d.SetBlockCurrent(true)
+	d.Open(1)
+	d.Close()
+
+	// Second open: no explicit SetBlockCurrent — blockCurrent must be false.
+	d.Open(1) // cursor on INBOX again
+	enter := tea.KeyMsg{Type: tea.KeyEnter}
+	cmd := d.Update(enter)
+	if cmd != nil {
+		cmd()
+	}
+
+	if selected == nil {
+		t.Error("callback should fire after block was cleared by Close")
+	}
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a

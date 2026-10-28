@@ -380,6 +380,89 @@ func TestMoveToArchive_QueueFullDropsSilently(t *testing.T) {
 	}
 }
 
+// TestMoveToFolder_EmptyDest verifies that MoveToFolder with an empty destination
+// returns nil without attempting an enqueue (no watcher is needed).
+func TestMoveToFolder_EmptyDest(t *testing.T) {
+	_, acct := startMockServer(t)
+	_, engine := openTestEngine(t, acct)
+
+	err := engine.MoveToFolder(acct, 1, 42, "")
+	if err != nil {
+		t.Errorf("MoveToFolder empty dest: want nil, got %v", err)
+	}
+}
+
+// TestMoveToFolder_NotWatching verifies that MoveToFolder returns ErrNotWatching
+// when no watcher is running for the named account.
+func TestMoveToFolder_NotWatching(t *testing.T) {
+	_, acct := startMockServer(t)
+	_, engine := openTestEngine(t, acct)
+
+	err := engine.MoveToFolder(config.Account{Name: "nonexistent"}, 1, 100, "Archives/2025")
+	if !errors.Is(err, mailsync.ErrNotWatching) {
+		t.Errorf("MoveToFolder: want ErrNotWatching, got %v", err)
+	}
+}
+
+// TestMoveToFolder_Enqueue verifies that MoveToFolder returns nil when a watcher
+// is running, confirming the op was accepted onto the moveOps channel.
+func TestMoveToFolder_Enqueue(t *testing.T) {
+	_, acct := startMockServer(t)
+	idleOff := false
+	acct.IDLEEnabled = &idleOff
+	_, engine := openTestEngine(t, acct)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	events := make(chan mailsync.Event, 64)
+	go func() {
+		_ = engine.Watch(ctx, acct, 10*time.Second, 0, events)
+	}()
+
+	if _, ok := waitEvent[mailsync.WatchStarted](ctx, events); !ok {
+		t.Fatal("did not receive WatchStarted")
+	}
+
+	err := engine.MoveToFolder(acct, 1, 42, "Archives/2025")
+	if err != nil {
+		t.Errorf("MoveToFolder with live watcher: want nil, got %v", err)
+	}
+}
+
+// TestMoveToFolder_QueueFullDropsSilently fills the moveOps channel (capacity
+// 16) completely, then sends one more and confirms MoveToFolder still returns
+// nil — the drop-on-full path must never surface an error to callers.
+func TestMoveToFolder_QueueFullDropsSilently(t *testing.T) {
+	_, acct := startMockServer(t)
+	idleOff := false
+	acct.IDLEEnabled = &idleOff
+	_, engine := openTestEngine(t, acct)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	events := make(chan mailsync.Event, 64)
+	go func() {
+		_ = engine.Watch(ctx, acct, 10*time.Second, 0, events)
+	}()
+
+	if _, ok := waitEvent[mailsync.WatchStarted](ctx, events); !ok {
+		t.Fatal("did not receive WatchStarted")
+	}
+
+	for i := range 16 {
+		if err := engine.MoveToFolder(acct, 1, uint32(i+1), "Archives/2025"); err != nil {
+			t.Fatalf("MoveToFolder fill %d: want nil, got %v", i+1, err)
+		}
+	}
+
+	err := engine.MoveToFolder(acct, 1, 17, "Archives/2025")
+	if err != nil {
+		t.Errorf("MoveToFolder queue-full drop: want nil, got %v", err)
+	}
+}
+
 // TestSyncEvents verifies that the event channel receives the expected sequence.
 func TestSyncEvents(t *testing.T) {
 	_, acct := startMockServer(t)

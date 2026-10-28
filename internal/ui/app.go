@@ -93,6 +93,24 @@ type archiveMsg struct {
 	popAfter bool
 }
 
+// openMoveToFolderMsg asks the shell to open the folder drawer in picker mode
+// so the user can choose a destination for the given message.
+type openMoveToFolderMsg struct {
+	folderID int64
+	uid      uint32
+	popAfter bool
+}
+
+// moveMessageMsg is dispatched by the folder drawer when the user picks a
+// destination during a move operation. The shell deletes the local row and
+// enqueues an IMAP MOVE to dst.Name.
+type moveMessageMsg struct {
+	srcFolderID int64
+	uid         uint32
+	dst         *mail.Folder
+	popAfter    bool
+}
+
 // folderCountsMsg carries fresh counts for the header chrome, loaded from the
 // store after a sync cycle completes.
 type folderCountsMsg struct {
@@ -354,13 +372,7 @@ type Model struct {
 func New(store mail.MessageStore, engine *mailsync.Engine, sender *mailsend.Engine, activeAcct *config.Account, cfg *config.Config, accountID, inboxFolderID int64, runner *accountrunner.Runner) Model {
 	wk := whichkey.New()
 
-	folderDrawer := folderdrawer.New(func(f *mail.Folder) tea.Msg {
-		return folderSelectedMsg{
-			folderID:   f.ID,
-			folderName: f.Name,
-			folderRole: f.Role,
-		}
-	})
+	folderDrawer := folderdrawer.New(nil)
 
 	acctDrawer := accountdrawer.New(func(name string) tea.Msg {
 		return accountSelectedMsg{name: name}
@@ -395,8 +407,22 @@ func New(store mail.MessageStore, engine *mailsync.Engine, sender *mailsend.Engi
 		m.account = activeAcct.Email
 		m.accountTag = activeAcct.Name
 	}
+	folderDrawer.SetOnSelect(m.defaultFolderOnSelect())
 	wk.SetKeyMap(m.top().KeyMap())
 	return m
+}
+
+// defaultFolderOnSelect returns the folder drawer callback used in normal
+// navigate mode. Called at construction time and re-installed after a move
+// operation to restore navigate behaviour.
+func (m *Model) defaultFolderOnSelect() func(*mail.Folder) tea.Msg {
+	return func(f *mail.Folder) tea.Msg {
+		return folderSelectedMsg{
+			folderID:   f.ID,
+			folderName: f.Name,
+			folderRole: f.Role,
+		}
+	}
 }
 
 func (m Model) top() View {
@@ -624,8 +650,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.folderDrawer == nil {
 			return m, nil
 		}
+		m.folderDrawer.SetOnSelect(m.defaultFolderOnSelect())
+		m.folderDrawer.SetBlockCurrent(false)
 		m.closeOtherOverlays("folder")
 		m.folderDrawer.Open(m.curFolder)
+		m.resizeDrawer()
+		m.resizeTop()
+		return m, loadFoldersCmd(m.store, m.accountID)
+
+	case openMoveToFolderMsg:
+		if m.folderDrawer == nil || msg.uid == 0 || msg.folderID == 0 {
+			return m, nil
+		}
+		srcFolderID, uid, popAfter := msg.folderID, msg.uid, msg.popAfter
+		m.folderDrawer.SetOnSelect(func(f *mail.Folder) tea.Msg {
+			return moveMessageMsg{
+				srcFolderID: srcFolderID,
+				uid:         uid,
+				dst:         f,
+				popAfter:    popAfter,
+			}
+		})
+		m.folderDrawer.SetBlockCurrent(true)
+		m.closeOtherOverlays("folder")
+		m.folderDrawer.Open(srcFolderID)
 		m.resizeDrawer()
 		m.resizeTop()
 		return m, loadFoldersCmd(m.store, m.accountID)
@@ -950,6 +998,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.popIfRequested(msg.popAfter)
 		return m, m.reloadMailListsCmd(msg.folderID)
+
+	case moveMessageMsg:
+		// Restore navigate-mode callback regardless of outcome.
+		if m.folderDrawer != nil {
+			m.folderDrawer.SetOnSelect(m.defaultFolderOnSelect())
+			m.folderDrawer.SetBlockCurrent(false)
+			m.resizeDrawer()
+		}
+		if msg.dst == nil || msg.uid == 0 || msg.srcFolderID == 0 || m.store == nil {
+			return m, nil
+		}
+		if msg.dst.ID == msg.srcFolderID {
+			return m, nil
+		}
+		_ = m.store.DeleteMessageByUID(msg.srcFolderID, msg.uid)
+		if m.engine != nil && m.activeAcct != nil {
+			_ = m.engine.MoveToFolder(*m.activeAcct, msg.srcFolderID, msg.uid, msg.dst.Name)
+		}
+		m.popIfRequested(msg.popAfter)
+		m.resizeTop()
+		return m, m.reloadMailListsCmd(msg.srcFolderID)
 
 	case openPathPickerMsg:
 		if m.pathPicker == nil {

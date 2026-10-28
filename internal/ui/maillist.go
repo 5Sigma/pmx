@@ -323,6 +323,16 @@ func (ml mailList) KeyMap() keymap.KeyMap {
 								seen:     false,
 							}}
 						}},
+						{Key: "m", Desc: "move to folder", Action: func() keymap.Result {
+							item, ok := ml.list.SelectedItem().(mailItem)
+							if !ok || item.uid == 0 {
+								return keymap.Result{Note: "no selection"}
+							}
+							return keymap.Result{Message: openMoveToFolderMsg{
+								folderID: item.folderID,
+								uid:      item.uid,
+							}}
+						}},
 					},
 				},
 				{

@@ -553,6 +553,16 @@ func (mr mailRead) KeyMap() keymap.KeyMap {
 							popAfter: true,
 						}}
 					}},
+					{Key: "m", Desc: "move to folder", Action: func() keymap.Result {
+						if mr.item.uid == 0 {
+							return keymap.Result{Note: "no imap coords"}
+						}
+						return keymap.Result{Message: openMoveToFolderMsg{
+							folderID: mr.item.folderID,
+							uid:      mr.item.uid,
+							popAfter: true,
+						}}
+					}},
 					{Key: "F", Desc: "flag", Action: func() keymap.Result {
 						if mr.item.uid == 0 {
 							return keymap.Result{Note: "no imap coords"}

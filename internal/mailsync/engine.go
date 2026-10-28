@@ -226,6 +226,30 @@ func (e *Engine) MoveToArchive(acct config.Account, folderID int64, uid uint32) 
 	return e.moveToRole(acct, folderID, uid, mail.RoleArchive)
 }
 
+// MoveToFolder enqueues an IMAP MOVE on the active watcher to an explicit
+// destination mailbox path. Mirrors moveToRole but takes the destination as a
+// literal mailbox name rather than a role. The caller is responsible for the
+// local DB delete.
+func (e *Engine) MoveToFolder(acct config.Account, folderID int64, uid uint32, dest string) error {
+	if dest == "" {
+		return nil
+	}
+	e.mu.Lock()
+	h, ok := e.watchers[acct.Name]
+	e.mu.Unlock()
+	if !ok {
+		return ErrNotWatching
+	}
+	op := moveOp{folderID: folderID, uid: uid, dest: dest}
+	select {
+	case h.moveOps <- op:
+		return nil
+	default:
+		e.logger.Warn("move queue full, dropping", "account", acct.Name, "uid", uid, "dest", dest)
+		return nil
+	}
+}
+
 // moveToRole enqueues an IMAP MOVE on the active watcher. The destination
 // mailbox is resolved via SPECIAL-USE discovery and the account's
 // per-role mailbox config field. Returns ErrNotWatching if no watcher is

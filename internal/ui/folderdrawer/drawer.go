@@ -30,6 +30,7 @@ type Model struct {
 	filterOn        bool
 	onSelect        func(*mail.Folder) tea.Msg
 	currentFolderID int64
+	blockCurrent    bool
 }
 
 // New constructs a folder drawer. onSelect is invoked when the user confirms
@@ -78,6 +79,7 @@ func (m *Model) Open(currentFolderID int64) {
 func (m *Model) Close() {
 	m.open = false
 	m.filterOn = false
+	m.blockCurrent = false
 	m.filter.SetValue("")
 	m.filter.Blur()
 	m.recomputeVisible()
@@ -101,6 +103,12 @@ func (m *Model) SetFolders(folders []*mail.Folder) {
 func (m *Model) SetOnSelect(cb func(*mail.Folder) tea.Msg) {
 	m.onSelect = cb
 }
+
+// SetBlockCurrent, when true, treats <enter> on the row matching
+// currentFolderID as a no-op so the drawer stays open. Used by the
+// move-to-folder picker to prevent moving a message to its own folder.
+// Automatically cleared by Close.
+func (m *Model) SetBlockCurrent(b bool) { m.blockCurrent = b }
 
 // SetSize records the available content size. The drawer's own width is
 // derived from totalWidth; height is kept as given so the column always fills
@@ -162,6 +170,9 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 				return nil
 			}
 			sel := m.visible[m.cursor]
+			if m.blockCurrent && sel.ID == m.currentFolderID {
+				return nil
+			}
 			cb := m.onSelect
 			m.Close()
 			if cb != nil {
@@ -206,6 +217,9 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 			return nil
 		}
 		sel := m.visible[m.cursor]
+		if m.blockCurrent && sel.ID == m.currentFolderID {
+			return nil
+		}
 		cb := m.onSelect
 		m.Close()
 		if cb != nil {
