@@ -511,6 +511,9 @@ func (mr mailRead) KeyMap() keymap.KeyMap {
 						if err != nil || src == nil {
 							return keymap.Result{Note: "could not load message"}
 						}
+						if atts, err := mr.store.ListAttachments(src.ID); err == nil {
+							src.Attachments = atts
+						}
 						body, _ := buildBodyMD(src.ID, mr.store)
 						acct := mr.cfg.AccountForMessage(src)
 						seed := compose.BuildForward(src, acct, body, func(a mail.Attachment) string {

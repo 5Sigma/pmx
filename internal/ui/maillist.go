@@ -369,6 +369,9 @@ func (ml mailList) KeyMap() keymap.KeyMap {
 							if err != nil || src == nil {
 								return keymap.Result{Note: "could not load message"}
 							}
+							if atts, err := ml.store.ListAttachments(src.ID); err == nil {
+								src.Attachments = atts
+							}
 							body, _ := buildBodyMD(src.ID, ml.store)
 							acct := ml.cfg.AccountForMessage(src)
 							seed := compose.BuildForward(src, acct, body, func(a mail.Attachment) string {
