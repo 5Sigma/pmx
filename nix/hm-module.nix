@@ -24,6 +24,17 @@ in {
       description = "Extra command-line arguments passed to pmxd.";
     };
 
+    environment = lib.mkOption {
+      type        = lib.types.attrsOf lib.types.str;
+      default     = { };
+      example     = { PASSWORD_STORE_DIR = "/home/user/.local/share/password-store"; };
+      description = ''
+        Environment variables passed to the pmxd service.
+        Useful for tools invoked by password_command (e.g. pass, gpg)
+        that rely on variables not present in the service environment.
+      '';
+    };
+
     autoStart = lib.mkOption {
       type        = lib.types.bool;
       default     = true;
@@ -55,6 +66,8 @@ in {
         Nice       = 10;
         IOSchedulingClass    = "best-effort";
         IOSchedulingPriority = 7;
+      } // lib.optionalAttrs (cfg.environment != { }) {
+        Environment = lib.mapAttrsToList (k: v: "${k}=${v}") cfg.environment;
       };
 
       Install = lib.mkIf cfg.autoStart {
@@ -75,6 +88,7 @@ in {
         LowPriorityIO   = true;
         StandardOutPath = "${config.home.homeDirectory}/Library/Logs/pmxd.log";
         StandardErrorPath = "${config.home.homeDirectory}/Library/Logs/pmxd.log";
+        EnvironmentVariables = cfg.environment;
       };
     };
   };
