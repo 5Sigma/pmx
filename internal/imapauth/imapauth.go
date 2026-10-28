@@ -52,5 +52,11 @@ func ConnectAndLogin(acct config.Account, token string, h *imapclient.Unilateral
 			return nil, fmt.Errorf("imap login %s: %w", acct.Email, err)
 		}
 	}
+	// Refresh capabilities after login. Servers (including Proton Bridge) may
+	// advertise a different set post-login (e.g. IDLE) than in the greeting.
+	if _, err := c.Capability().Wait(); err != nil {
+		_ = c.Close()
+		return nil, fmt.Errorf("imap capability %s: %w", acct.IMAPHost, err)
+	}
 	return c, nil
 }
