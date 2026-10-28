@@ -6,6 +6,18 @@ let
   isLinux  = pkgs.stdenv.isLinux;
   isDarwin = pkgs.stdenv.isDarwin;
   exe = lib.escapeShellArgs ([ "${cfg.package}/bin/pmxd" ] ++ cfg.extraArgs);
+
+  # If the user has programs.password-store enabled with a non-default store
+  # dir, forward PASSWORD_STORE_DIR into the service automatically so
+  # password_command = "pass show ..." works without any extra config.
+  passwordStoreEnv =
+    let ps = config.programs.password-store; in
+    lib.optionalAttrs
+      (ps.enable or false && (ps.settings.PASSWORD_STORE_DIR or "") != "")
+      { PASSWORD_STORE_DIR = ps.settings.PASSWORD_STORE_DIR; };
+
+  # Explicit cfg.environment takes precedence over the auto-detected value.
+  serviceEnv = passwordStoreEnv // cfg.environment;
 in {
   options.services.pmxd = {
     enable = lib.mkEnableOption "pmxd, the pmx mail sync daemon";
@@ -27,11 +39,11 @@ in {
     environment = lib.mkOption {
       type        = lib.types.attrsOf lib.types.str;
       default     = { };
-      example     = { PASSWORD_STORE_DIR = "/home/user/.local/share/password-store"; };
+      example     = { GNUPGHOME = "/home/user/.gnupg-work"; };
       description = ''
-        Environment variables passed to the pmxd service.
-        Useful for tools invoked by password_command (e.g. pass, gpg)
-        that rely on variables not present in the service environment.
+        Extra environment variables passed to the pmxd service, merged on top
+        of any variables the module infers automatically (e.g.
+        PASSWORD_STORE_DIR from programs.password-store).
       '';
     };
 
@@ -66,8 +78,8 @@ in {
         Nice       = 10;
         IOSchedulingClass    = "best-effort";
         IOSchedulingPriority = 7;
-      } // lib.optionalAttrs (cfg.environment != { }) {
-        Environment = lib.mapAttrsToList (k: v: "${k}=${v}") cfg.environment;
+      } // lib.optionalAttrs (serviceEnv != { }) {
+        Environment = lib.mapAttrsToList (k: v: "${k}=${v}") serviceEnv;
       };
 
       Install = lib.mkIf cfg.autoStart {
@@ -88,7 +100,7 @@ in {
         LowPriorityIO   = true;
         StandardOutPath = "${config.home.homeDirectory}/Library/Logs/pmxd.log";
         StandardErrorPath = "${config.home.homeDirectory}/Library/Logs/pmxd.log";
-        EnvironmentVariables = cfg.environment;
+        EnvironmentVariables = serviceEnv;
       };
     };
   };
