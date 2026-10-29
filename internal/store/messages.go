@@ -10,6 +10,18 @@ import (
 	"github.com/5Sigma/pmx/internal/mail"
 )
 
+func (s *Store) GetAccountID(name string) (int64, bool, error) {
+	var id int64
+	err := s.db.QueryRow(`SELECT id FROM accounts WHERE name = ?`, name).Scan(&id)
+	if err == sql.ErrNoRows {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("get account %q: %w", name, err)
+	}
+	return id, true, nil
+}
+
 func (s *Store) EnsureAccount(name, email string) (int64, error) {
 	_, err := s.db.Exec(
 		`INSERT INTO accounts(name, email) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET email = excluded.email`,

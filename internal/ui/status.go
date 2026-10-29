@@ -224,9 +224,13 @@ func (sv *statusView) fetchTab(idx int) tea.Cmd {
 				return statusTabLoadedMsg{tabIdx: idx, data: tabData{kind: tabKindAccount, account: ad}}
 			}
 			ad.storeAvailable = true
-			id, err := store.EnsureAccount(acct.Name, acct.Email)
+			id, ok, err := store.GetAccountID(acct.Name)
 			if err != nil {
 				ad.errMsg = "account lookup: " + err.Error()
+				return statusTabLoadedMsg{tabIdx: idx, data: tabData{kind: tabKindAccount, account: ad}}
+			}
+			if !ok {
+				ad.errMsg = "account not yet synced"
 				return statusTabLoadedMsg{tabIdx: idx, data: tabData{kind: tabKindAccount, account: ad}}
 			}
 			ad.accountID = id

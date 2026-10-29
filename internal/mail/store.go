@@ -6,6 +6,9 @@ import "time"
 type MessageStore interface {
 	// EnsureAccount creates or returns an account row by config name.
 	EnsureAccount(name, email string) (int64, error)
+	// GetAccountID returns the primary key for an existing account row.
+	// Returns 0, false, nil when no row exists (does NOT create one).
+	GetAccountID(name string) (int64, bool, error)
 	// EnsureFolder creates or returns a folder row.
 	EnsureFolder(accountID int64, name string) (int64, error)
 	// GetFolder returns a folder by its primary key.
