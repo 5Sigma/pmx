@@ -95,3 +95,30 @@ func PmxdStatePath() (string, error) {
 	}
 	return filepath.Join(dir, "pmxd-state.json"), nil
 }
+
+// PmxdLockPath returns the path to the pmxd flock file used for daemon presence detection.
+func PmxdLockPath() (string, error) {
+	dir, err := DataDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "pmxd.lock"), nil
+}
+
+// PmxdSocketPath returns the Unix socket path for daemon ↔ TUI IPC.
+// Uses $XDG_RUNTIME_DIR/pmx/pmxd.sock if XDG_RUNTIME_DIR is set,
+// otherwise falls back to the data dir (same dir as pmxd.lock).
+func PmxdSocketPath() (string, error) {
+	if rd := os.Getenv("XDG_RUNTIME_DIR"); rd != "" {
+		dir := filepath.Join(rd, "pmx")
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			return "", err
+		}
+		return filepath.Join(dir, "pmxd.sock"), nil
+	}
+	dir, err := DataDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "pmxd.sock"), nil
+}

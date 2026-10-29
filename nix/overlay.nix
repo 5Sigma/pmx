@@ -8,6 +8,5 @@ let
     inherit gitRev;
   };
 in {
-  pmx  = drv;
-  pmxd = drv;
+  pmx = drv;
 }

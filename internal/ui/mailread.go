@@ -18,7 +18,7 @@ import (
 	"github.com/5Sigma/pmx/internal/compose"
 	"github.com/5Sigma/pmx/internal/config"
 	"github.com/5Sigma/pmx/internal/mail"
-	"github.com/5Sigma/pmx/internal/mailsend"
+	"github.com/5Sigma/pmx/internal/mailops"
 	"github.com/5Sigma/pmx/internal/ui/keymap"
 	"github.com/5Sigma/pmx/internal/ui/pathpicker"
 	"github.com/5Sigma/pmx/internal/ui/styles"
@@ -55,7 +55,7 @@ type mailRead struct {
 	item          mailItem
 	store         mail.MessageStore
 	cfg           *config.Config
-	sender        *mailsend.Engine
+	sender        mailops.SendOps
 	keys          config.Keymap
 	viewport      viewport.Model
 	width         int
@@ -77,7 +77,7 @@ func (mr mailRead) infoBarRows() int {
 	return h
 }
 
-func newMailRead(item mailItem, store mail.MessageStore, cfg *config.Config, sender *mailsend.Engine, keys config.Keymap) mailRead {
+func newMailRead(item mailItem, store mail.MessageStore, cfg *config.Config, sender mailops.SendOps, keys config.Keymap) mailRead {
 	return mailRead{item: item, store: store, cfg: cfg, sender: sender, keys: keys, attachmentIdx: -1}
 }
 

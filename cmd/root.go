@@ -1,9 +1,9 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -19,21 +19,6 @@ import (
 	"github.com/5Sigma/pmx/internal/ui"
 	"github.com/5Sigma/pmx/internal/version"
 )
-
-// newLogger opens (or creates) the pmx log file and returns a slog.Logger
-// writing to it. Falls back to stderr if the file can't be opened so the
-// logger is always non-nil.
-func newLogger() *slog.Logger {
-	logPath, err := config.LogPath()
-	if err != nil {
-		return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	}
-	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
-	if err != nil {
-		return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	}
-	return slog.New(slog.NewTextHandler(f, &slog.HandlerOptions{Level: slog.LevelDebug}))
-}
 
 var rootCmd = &cobra.Command{
 	Use:     "pmx",
@@ -85,7 +70,7 @@ func runTUI() error {
 		}
 	}
 
-	logger := newLogger()
+	logger := newLoggerFrom(config.LogPath)
 	logger.Info("pmx starting",
 		"db", dbPath,
 		"store_ok", st != nil,
@@ -137,23 +122,39 @@ func runTUI() error {
 		}
 	}
 
-	// Runner is created before the program so ui.New can hold a reference.
-	// SetProgram is called after tea.NewProgram to break the circular dependency.
-	runner := accountrunner.New(engine, sender, cfg, logger, nil)
+	// Probe for the pmx daemon via its Unix socket. If reachable, the TUI
+	// becomes a thin client: ops are proxied over the socket, events are pushed
+	// in from the daemon. If unreachable, the TUI starts its own accountrunner.
+	mode := resolveClientMode(engine, sender, logger)
+
+	// The accountrunner owns per-account IMAP goroutines in standalone mode.
+	// In daemon mode the daemon owns those goroutines so the runner is unused;
+	// the UI's switch logic tolerates a nil runner.
+	var runner *accountrunner.Runner
+	if mode.DaemonClient == nil {
+		runner = accountrunner.New(engine, sender, cfg, logger, nil)
+		defer func() { _ = runner.Stop() }()
+	}
 
 	p := tea.NewProgram(
-		ui.New(st, engine, sender, initialAcct, cfg, accountID, inboxFolderID, runner),
+		ui.New(st, mode.Ops, mode.Send, initialAcct, cfg, accountID, inboxFolderID, runner),
 		opts...,
 	)
-	runner.SetProgram(p)
+	if runner != nil {
+		runner.SetProgram(p)
+	}
 
-	if initialAcct != nil {
+	if mode.DaemonClient != nil {
+		// Start the event reader goroutine. It forwards all daemon events to
+		// the bubbletea program and sends DaemonDisconnectedMsg on closure.
+		go mode.DaemonClient.Events(context.Background(), p)
+		defer func() { _ = mode.DaemonClient.Close() }()
+	} else if initialAcct != nil {
 		if err := runner.Start(*initialAcct); err != nil {
 			logger.Warn("failed to start initial account goroutines",
 				"account", initialAcct.Name, "err", err)
 		}
 	}
-	defer func() { _ = runner.Stop() }()
 
 	_, err = p.Run()
 	return err

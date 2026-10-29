@@ -4,23 +4,33 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
+	"github.com/5Sigma/pmx/internal/accountrunner"
 	"github.com/5Sigma/pmx/internal/config"
 	"github.com/5Sigma/pmx/internal/mail"
 	"github.com/5Sigma/pmx/internal/mailsend"
 	"github.com/5Sigma/pmx/internal/mailsync"
 )
 
+// Broadcaster receives every event the daemon emits and fans it out to
+// connected clients. Implemented by pmxsock.Server. Kept as an interface here
+// so pmxd does not import pmxsock (avoids a cycle).
+type Broadcaster interface {
+	Broadcast(ev any)
+}
+
 // Daemon orchestrates periodic mail sync, outbox drain, and desktop notifications.
 type Daemon struct {
-	cfg      *config.Config
-	store    mail.MessageStore
-	syncEng  *mailsync.Engine
-	sendEng  *mailsend.Engine
-	notifier *Notifier
-	state    *State
-	logger   *slog.Logger
+	cfg         *config.Config
+	store       mail.MessageStore
+	syncEng     *mailsync.Engine
+	sendEng     *mailsend.Engine
+	notifier    *Notifier
+	state       *State
+	logger      *slog.Logger
+	broadcaster Broadcaster // may be nil; set via SetBroadcaster
 }
 
 // New creates a Daemon. Call Run to start the cycle.
@@ -35,6 +45,10 @@ func New(cfg *config.Config, store mail.MessageStore, syncEng *mailsync.Engine, 
 		logger:   logger,
 	}
 }
+
+// SetBroadcaster installs a Broadcaster that receives every event the daemon
+// handles. Call before Run. Safe to call with nil (disables broadcasting).
+func (d *Daemon) SetBroadcaster(b Broadcaster) { d.broadcaster = b }
 
 // Run starts the daemon loop. Blocks until ctx is cancelled.
 // When idle_enabled is true (the default), it uses IMAP IDLE via Watch().
@@ -67,10 +81,10 @@ func (d *Daemon) runPoll(ctx context.Context) error {
 	}
 }
 
-// runIdle uses IMAP IDLE (via Watch) for push-based sync. One goroutine per
-// account calls Watch(); their events are fanned into a shared channel. The
-// main loop fires notifications on new-mail events and drains the outbox on a
-// send ticker.
+// runIdle uses IMAP IDLE (via Watch) for push-based sync. For each account,
+// accountrunner.RunEngines launches a Watch + sender.Run pair; two forwarders
+// fan the typed event channels into a shared chan any so broadcast and
+// handleWatchEvent see every event in one place.
 func (d *Daemon) runIdle(ctx context.Context) error {
 	// Seed the DB and fire initial notifications before Watch takes over.
 	d.cycle(ctx)
@@ -78,58 +92,59 @@ func (d *Daemon) runIdle(ctx context.Context) error {
 		return nil
 	}
 
-	// Buffered to absorb bursts from multiple accounts without blocking Watch.
-	events := make(chan mailsync.Event, 64)
+	events := make(chan any, 64)
+	var wg sync.WaitGroup
 
-	// Launch one Watch goroutine per account. Each Watch call closes its own
-	// events channel on return, so we forward to the shared channel instead of
-	// passing it directly.
 	for _, acct := range d.cfg.Accounts {
-		acct := acct // capture for goroutine
-		acctEvents := make(chan mailsync.Event, 32)
+		acct := acct
+		syncCh := make(chan mailsync.Event, 32)
+		sendCh := make(chan mailsend.Event, 32)
+
+		wg.Add(3)
 		go func() {
-			// Forward from per-account channel to shared fan-in channel.
-			// This goroutine exits when Watch closes acctEvents.
-			for ev := range acctEvents {
+			defer wg.Done()
+			accountrunner.RunEngines(ctx, acct, d.syncEng, d.sendEng, d.cfg, d.logger, syncCh, sendCh)
+		}()
+		go func() {
+			defer wg.Done()
+			for ev := range syncCh {
 				select {
 				case events <- ev:
 				case <-ctx.Done():
-					// Drain acctEvents so Watch's sender doesn't block.
-					for range acctEvents {
-					}
 					return
 				}
 			}
 		}()
 		go func() {
-			if err := d.syncEng.Watch(
-				ctx, acct,
-				d.cfg.General.PollInterval,
-				d.cfg.General.SweepInterval,
-				acctEvents,
-			); err != nil {
-				d.logger.Warn("Watch exited", "acct", acct.Name, "err", err)
+			defer wg.Done()
+			for ev := range sendCh {
+				select {
+				case events <- ev:
+				case <-ctx.Done():
+					return
+				}
 			}
 		}()
 	}
 
-	sendTicker := time.NewTicker(d.cfg.General.SendInterval)
-	defer sendTicker.Stop()
+	go func() {
+		wg.Wait()
+		close(events)
+	}()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
-
-		case ev := <-events:
-			d.handleWatchEvent(ctx, ev)
-
-		case <-sendTicker.C:
-			for _, acct := range d.cfg.Accounts {
-				if ctx.Err() != nil {
-					return nil
-				}
-				d.sendOne(ctx, acct)
+		case ev, ok := <-events:
+			if !ok {
+				return nil
+			}
+			if d.broadcaster != nil {
+				d.broadcaster.Broadcast(ev)
+			}
+			if syncEv, ok := ev.(mailsync.Event); ok {
+				d.handleWatchEvent(ctx, syncEv)
 			}
 		}
 	}

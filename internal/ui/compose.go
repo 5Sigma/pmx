@@ -32,7 +32,7 @@ import (
 
 	"github.com/5Sigma/pmx/internal/config"
 	"github.com/5Sigma/pmx/internal/mail"
-	"github.com/5Sigma/pmx/internal/mailsend"
+	"github.com/5Sigma/pmx/internal/mailops"
 	"github.com/5Sigma/pmx/internal/ui/compose"
 	"github.com/5Sigma/pmx/internal/ui/keymap"
 	"github.com/5Sigma/pmx/internal/ui/pathpicker"
@@ -64,7 +64,7 @@ type composeView struct {
 	form   *composeForm
 	cfg    *config.Config
 	store  mail.MessageStore
-	sender *mailsend.Engine
+	sender mailops.SendOps
 
 	// Editor + preview state.
 	body     string
@@ -87,7 +87,7 @@ type composeView struct {
 }
 
 // newComposeView constructs a fresh compose modal.
-func newComposeView(cfg *config.Config, store mail.MessageStore, sender *mailsend.Engine) *composeView {
+func newComposeView(cfg *config.Config, store mail.MessageStore, sender mailops.SendOps) *composeView {
 	return newComposeViewSeeded(cfg, store, sender, nil)
 }
 
@@ -98,7 +98,7 @@ func newComposeView(cfg *config.Config, store mail.MessageStore, sender *mailsen
 // model injects a SuggestFunc via composeView.SetSuggestFunc when the view
 // is pushed onto the stack (see app.go). This keeps the data dependency —
 // store + current accountID — scoped to the one place that owns it.
-func newComposeViewSeeded(cfg *config.Config, store mail.MessageStore, sender *mailsend.Engine, seed *compose.Seed) *composeView {
+func newComposeViewSeeded(cfg *config.Config, store mail.MessageStore, sender mailops.SendOps, seed *compose.Seed) *composeView {
 	c := &composeView{cfg: cfg, store: store, sender: sender, seed: seed}
 	c.form = newComposeForm(cfg, nil)
 	c.vp = viewport.New(0, 0)

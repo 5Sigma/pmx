@@ -16,9 +16,9 @@ buildGoModule rec {
 
   src = lib.cleanSource ../.;
 
-  # subPackages builds only these two mains; cmd/pmx-mocks is excluded intentionally.
+  # subPackages builds only the root main; cmd/pmx-mocks is excluded intentionally.
   # Do not remove subPackages or the mock binary will also land in $out/bin.
-  subPackages = [ "." "cmd/pmxd" ];
+  subPackages = [ "." ];
 
   vendorHash = "sha256-cm8No4pxOBGXxcwGhoBZw5oRdyKlFL9g2gDQfYJMj1c=";
 
@@ -34,13 +34,9 @@ buildGoModule rec {
   postInstall = ''
     wrapProgram $out/bin/pmx \
       --prefix PATH : ${lib.makeBinPath [ xdg-utils ]}
-    wrapProgram $out/bin/pmxd \
-      --prefix PATH : ${lib.makeBinPath [ xdg-utils ]}
 
     install -Dm644 contrib/pmxd.service \
       $out/share/systemd/user/pmxd.service
-    substituteInPlace $out/share/systemd/user/pmxd.service \
-      --replace-fail '%h/.local/bin/pmxd' "$out/bin/pmxd"
   '';
 
   meta = with lib; {

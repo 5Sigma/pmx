@@ -18,13 +18,12 @@
         };
       in {
         packages = {
-          inherit (pkgs) pmx pmxd;
+          inherit (pkgs) pmx;
           default = pkgs.pmx;
         };
 
         apps = {
           pmx     = { type = "app"; program = "${pkgs.pmx}/bin/pmx"; };
-          pmxd    = { type = "app"; program = "${pkgs.pmxd}/bin/pmxd"; };
           default = { type = "app"; program = "${pkgs.pmx}/bin/pmx"; };
         };
 
@@ -40,7 +39,7 @@
         formatter = pkgs.nixfmt-rfc-style;
 
         checks = {
-          inherit (pkgs) pmx pmxd;
+          inherit (pkgs) pmx;
         };
       }
     ) // {

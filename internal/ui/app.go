@@ -15,8 +15,10 @@ import (
 	"github.com/5Sigma/pmx/internal/accountrunner"
 	"github.com/5Sigma/pmx/internal/config"
 	"github.com/5Sigma/pmx/internal/mail"
+	"github.com/5Sigma/pmx/internal/mailops"
 	"github.com/5Sigma/pmx/internal/mailsend"
 	"github.com/5Sigma/pmx/internal/mailsync"
+	"github.com/5Sigma/pmx/internal/pmxproto"
 	"github.com/5Sigma/pmx/internal/ui/accountdrawer"
 	"github.com/5Sigma/pmx/internal/ui/compose"
 	"github.com/5Sigma/pmx/internal/ui/folderdrawer"
@@ -315,12 +317,16 @@ type Model struct {
 	// to read or persist mail. May be nil — all paths must tolerate that.
 	store mail.MessageStore
 
-	// Sync engine and the account to use for background syncs.
-	engine     *mailsync.Engine
-	sender     *mailsend.Engine
-	runner     *accountrunner.Runner
+	// Sync/send ops and the account to use for background ops.
+	ops    mailops.MailOps
+	send   mailops.SendOps
+	runner *accountrunner.Runner
+
 	activeAcct *config.Account
 	cfg        *config.Config
+
+	// daemonDisconnected is set when the socket to pmx daemon closes mid-session.
+	daemonDisconnected bool
 
 	syncingAcct string // name of account being switched to; "" when idle
 	flashAcct   bool   // true for 400ms after a successful switch
@@ -364,13 +370,13 @@ type Model struct {
 	syncSpinner spinner.Model
 }
 
-// New constructs the root Model. engine, sender, and activeAcct may be nil
-// when no account is configured; all code paths tolerate that.
+// New constructs the root Model. ops, send, and activeAcct may be nil when no
+// account is configured; all code paths tolerate that.
 //
 // accountID and inboxFolderID resolve the initial mail list context. When the
 // caller cannot resolve either (no store / no account) they may pass 0; the
 // mail list will render empty until a sync populates the store.
-func New(store mail.MessageStore, engine *mailsync.Engine, sender *mailsend.Engine, activeAcct *config.Account, cfg *config.Config, accountID, inboxFolderID int64, runner *accountrunner.Runner) Model {
+func New(store mail.MessageStore, ops mailops.MailOps, send mailops.SendOps, activeAcct *config.Account, cfg *config.Config, accountID, inboxFolderID int64, runner *accountrunner.Runner) Model {
 	wk := whichkey.New()
 
 	folderDrawer := folderdrawer.New(nil)
@@ -388,14 +394,14 @@ func New(store mail.MessageStore, engine *mailsync.Engine, sender *mailsend.Engi
 	)
 
 	m := Model{
-		stack:         []View{newMailList(store, cfg, sender, inboxFolderID, "Inbox", mail.RoleInbox)},
+		stack:         []View{newMailList(store, cfg, send, inboxFolderID, "Inbox", mail.RoleInbox)},
 		wk:            wk,
 		folderDrawer:  folderDrawer,
 		accountDrawer: acctDrawer,
 		pathPicker:    pathpicker.New(),
 		store:         store,
-		engine:        engine,
-		sender:        sender,
+		ops:           ops,
+		send:          send,
 		runner:        runner,
 		activeAcct:    activeAcct,
 		cfg:           cfg,
@@ -659,8 +665,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// If a folder switch was pending (SwitchFolder failed on select because
 		// the watcher wasn't connected yet), retry now that the watcher is live.
-		if m.pendingFolderSwitch != "" && m.engine != nil && m.activeAcct != nil {
-			if err := m.engine.SwitchFolder(m.activeAcct.Name, m.pendingFolderSwitch); err == nil {
+		if m.pendingFolderSwitch != "" && m.ops != nil && m.activeAcct != nil {
+			if err := m.ops.SwitchFolder(m.activeAcct.Name, m.pendingFolderSwitch); err == nil {
 				m.pendingFolderSwitch = ""
 			}
 		}
@@ -780,7 +786,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncedCount = 0
 		m.flashAcct = true
 		// Reset stack to a fresh mail list; old views hold stale PKs.
-		m.stack = []View{newMailList(m.store, m.cfg, m.sender, msg.inboxFolderID, "Inbox", mail.RoleInbox)}
+		m.stack = []View{newMailList(m.store, m.cfg, m.send, msg.inboxFolderID, "Inbox", mail.RoleInbox)}
 		m.stack[0] = m.stack[0].SetSize(m.contentWidth(), m.contentHeight())
 		m.wk.SetKeyMap(m.top().KeyMap())
 		return m, tea.Batch(
@@ -845,8 +851,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.top().Init(),
 			loadFolderCountsCmd(m.store, msg.folderID),
 		}
-		if m.engine != nil && m.activeAcct != nil && msg.folderName != "" {
-			if err := m.engine.SwitchFolder(m.activeAcct.Name, msg.folderName); err != nil {
+		if m.ops != nil && m.activeAcct != nil && msg.folderName != "" {
+			if err := m.ops.SwitchFolder(m.activeAcct.Name, msg.folderName); err != nil {
 				// Watcher not yet connected (scheduling race after account switch).
 				// Retry when WatchStarted or FolderDone arrives.
 				m.pendingFolderSwitch = msg.folderName
@@ -903,8 +909,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.watchStatus = "connecting…"
 		// Retry any pending folder switch — the watcher handle is now registered
 		// so SwitchFolder can enqueue the folder name for when the poll loop starts.
-		if m.pendingFolderSwitch != "" && m.engine != nil && m.activeAcct != nil {
-			if err := m.engine.SwitchFolder(m.activeAcct.Name, m.pendingFolderSwitch); err == nil {
+		if m.pendingFolderSwitch != "" && m.ops != nil && m.activeAcct != nil {
+			if err := m.ops.SwitchFolder(m.activeAcct.Name, m.pendingFolderSwitch); err == nil {
 				m.pendingFolderSwitch = ""
 			}
 		}
@@ -915,10 +921,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case mailsync.WatchError:
-		// Non-fatal: log and let the watcher retry. Store last error string
-		// for display in the chrome.
+		// Non-fatal: let the watcher retry. Store last error string for display in the chrome.
 		m.watchStatus = "reconnecting…"
-		m.engine.Logger().Info("watch error", "account", msg.Account, "err", msg.Err)
 		return m, nil
 
 	case mailsend.WorkerStarted:
@@ -944,10 +948,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sendStatus = ""
 		return m, nil
 
+	case pmxproto.DaemonDisconnectedMsg:
+		m.daemonDisconnected = true
+		return m, nil
+
 	case refreshMsg:
 		// Poke the active watcher — it will emit FolderDone which triggers reload.
-		if m.engine != nil && m.activeAcct != nil {
-			_ = m.engine.Refresh(m.activeAcct.Name)
+		if m.ops != nil && m.activeAcct != nil {
+			_ = m.ops.Refresh(m.activeAcct.Name)
 		}
 		return m, nil
 
@@ -964,8 +972,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		changed := newFlags != msg.flags
 		if changed {
 			_ = m.store.UpdateFlags(msg.folderID, msg.uid, newFlags)
-			if m.engine != nil && m.activeAcct != nil {
-				_ = m.engine.MarkSeen(m.activeAcct.Name, msg.folderID, msg.uid, msg.seen)
+			if m.ops != nil && m.activeAcct != nil {
+				_ = m.ops.MarkSeen(m.activeAcct.Name, msg.folderID, msg.uid, msg.seen)
 			}
 		}
 		m.popIfRequested(msg.popAfter)
@@ -987,8 +995,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		changed := newFlags != msg.flags
 		if changed {
 			_ = m.store.UpdateFlags(msg.folderID, msg.uid, newFlags)
-			if m.engine != nil && m.activeAcct != nil {
-				_ = m.engine.MarkFlagged(m.activeAcct.Name, msg.folderID, msg.uid, msg.flagged)
+			if m.ops != nil && m.activeAcct != nil {
+				_ = m.ops.MarkFlagged(m.activeAcct.Name, msg.folderID, msg.uid, msg.flagged)
 			}
 			// Update cached item in any mailRead in the stack so the info-bar
 			// reflects the new flag state without a round-trip reload.
@@ -1024,8 +1032,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		_ = m.store.DeleteMessageByUID(msg.folderID, msg.uid)
-		if m.engine != nil && m.activeAcct != nil {
-			_ = m.engine.MoveToTrash(*m.activeAcct, msg.folderID, msg.uid)
+		if m.ops != nil && m.activeAcct != nil {
+			_ = m.ops.MoveToTrash(*m.activeAcct, msg.folderID, msg.uid)
 		}
 		m.popIfRequested(msg.popAfter)
 		return m, m.reloadMailListsCmd(msg.folderID)
@@ -1035,8 +1043,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		_ = m.store.DeleteMessageByUID(msg.folderID, msg.uid)
-		if m.engine != nil && m.activeAcct != nil {
-			_ = m.engine.MoveToArchive(*m.activeAcct, msg.folderID, msg.uid)
+		if m.ops != nil && m.activeAcct != nil {
+			_ = m.ops.MoveToArchive(*m.activeAcct, msg.folderID, msg.uid)
 		}
 		m.popIfRequested(msg.popAfter)
 		return m, m.reloadMailListsCmd(msg.folderID)
@@ -1055,8 +1063,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		_ = m.store.DeleteMessageByUID(msg.srcFolderID, msg.uid)
-		if m.engine != nil && m.activeAcct != nil {
-			_ = m.engine.MoveToFolder(*m.activeAcct, msg.srcFolderID, msg.uid, msg.dst.Name)
+		if m.ops != nil && m.activeAcct != nil {
+			_ = m.ops.MoveToFolder(*m.activeAcct, msg.srcFolderID, msg.uid, msg.dst.Name)
 		}
 		m.popIfRequested(msg.popAfter)
 		m.resizeTop()
@@ -1338,6 +1346,17 @@ func (m Model) renderStatusBar() string {
 		hints = m.top().StatusKeys()
 	}
 	modeSpacer := styles.StatusBar.Render(" ")
+
+	if m.daemonDisconnected {
+		disconnectBanner := lipgloss.NewStyle().
+			Background(styles.ColorDanger).
+			Foreground(styles.ColorBg).
+			Bold(true).
+			Padding(0, 1).
+			Render(" daemon disconnected ")
+		modeStr = disconnectBanner
+		hints = styles.StatusBar.Render("  restart pmx daemon to resume")
+	}
 
 	// Right: version / position chip.
 	right := styles.StatusSep.Render("│ ") +

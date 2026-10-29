@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=%h/.local/bin/pmxd
+ExecStart=%h/.local/bin/pmx daemon
 Restart=on-failure
 RestartSec=10
 Nice=10

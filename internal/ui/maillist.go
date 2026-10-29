@@ -13,7 +13,7 @@ import (
 	"github.com/5Sigma/pmx/internal/compose"
 	"github.com/5Sigma/pmx/internal/config"
 	"github.com/5Sigma/pmx/internal/mail"
-	"github.com/5Sigma/pmx/internal/mailsend"
+	"github.com/5Sigma/pmx/internal/mailops"
 	"github.com/5Sigma/pmx/internal/ui/keymap"
 	"github.com/5Sigma/pmx/internal/ui/styles"
 )
@@ -29,7 +29,7 @@ type mailList struct {
 	list       list.Model
 	store      mail.MessageStore
 	cfg        *config.Config
-	sender     *mailsend.Engine
+	sender     mailops.SendOps
 	folderID   int64
 	folderName string
 	folderRole mail.FolderRole
@@ -42,7 +42,7 @@ type mailList struct {
 // list items. An empty slice renders an empty list.
 type messagesLoadedMsg []*mail.Message
 
-func newMailList(store mail.MessageStore, cfg *config.Config, sender *mailsend.Engine, folderID int64, folderName string, folderRole mail.FolderRole) mailList {
+func newMailList(store mail.MessageStore, cfg *config.Config, sender mailops.SendOps, folderID int64, folderName string, folderRole mail.FolderRole) mailList {
 	items := []list.Item{}
 
 	l := list.New(items, mailDelegate{}, 0, 0)

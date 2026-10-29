@@ -5,7 +5,7 @@ let
   cfg = config.services.pmxd;
   isLinux  = pkgs.stdenv.isLinux;
   isDarwin = pkgs.stdenv.isDarwin;
-  exe = lib.escapeShellArgs ([ "${cfg.package}/bin/pmxd" ] ++ cfg.extraArgs);
+  exe = lib.escapeShellArgs ([ "${cfg.package}/bin/pmx" "daemon" ] ++ cfg.extraArgs);
 
   # If the user has programs.password-store enabled with a non-default store
   # dir, forward PASSWORD_STORE_DIR into the service automatically so
@@ -24,9 +24,9 @@ in {
 
     package = lib.mkOption {
       type        = lib.types.package;
-      default     = self.packages.${pkgs.system}.pmxd;
-      defaultText = lib.literalExpression "pmx.packages.\${pkgs.system}.pmxd";
-      description = "The pmx package to use (provides both pmx and pmxd binaries).";
+      default     = self.packages.${pkgs.system}.pmx;
+      defaultText = lib.literalExpression "pmx.packages.\${pkgs.system}.pmx";
+      description = "The pmx package to use (provides the pmx binary; daemon is run as 'pmx daemon').";
     };
 
     extraArgs = lib.mkOption {
@@ -59,7 +59,6 @@ in {
   };
 
   config = lib.mkIf cfg.enable {
-    # Both pmx and pmxd live in the same derivation; one package exposes both.
     home.packages = [ cfg.package ];
 
     # Linux: systemd user service
@@ -92,7 +91,7 @@ in {
       enable = true;
       config = {
         Label           = "io.5sigma.pmxd";
-        ProgramArguments = [ "${cfg.package}/bin/pmxd" ] ++ cfg.extraArgs;
+        ProgramArguments = [ "${cfg.package}/bin/pmx" "daemon" ] ++ cfg.extraArgs;
         RunAtLoad       = cfg.autoStart;
         KeepAlive       = { Crashed = true; };
         ThrottleInterval = 10;

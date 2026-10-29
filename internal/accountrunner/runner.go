@@ -95,32 +95,15 @@ func (r *Runner) start(acct config.Account) error {
 	syncEvents := make(chan mailsync.Event, 32)
 	sendEvents := make(chan mailsend.Event, 32)
 
-	if r.engine != nil {
-		r.wg.Add(2)
-		go func() {
-			defer r.wg.Done()
-			if err := r.engine.Watch(ctx, acct, r.cfg.General.PollInterval, r.cfg.General.SweepInterval, syncEvents); err != nil {
-				r.logger.Warn("Watch exited with error", "account", acct.Name, "err", err)
-			}
-		}()
-		go r.forwardSyncEvents(syncEvents)
-	} else {
-		// Drain the channel so the forwarder goroutine is never needed.
-		close(syncEvents)
-	}
-
-	if r.sender != nil {
-		r.wg.Add(2)
-		go func() {
-			defer r.wg.Done()
-			if err := r.sender.Run(ctx, acct, r.cfg.General.SendInterval, sendEvents); err != nil {
-				r.logger.Warn("send worker exited with error", "account", acct.Name, "err", err)
-			}
-		}()
-		go r.forwardSendEvents(sendEvents)
-	} else {
-		close(sendEvents)
-	}
+	// Three goroutines: engine lifecycle + two forwarders. Watch and Run close
+	// their events channel on return, so the forwarders unblock automatically.
+	r.wg.Add(3)
+	go func() {
+		defer r.wg.Done()
+		RunEngines(ctx, acct, r.engine, r.sender, r.cfg, r.logger, syncEvents, sendEvents)
+	}()
+	go r.forwardSyncEvents(syncEvents)
+	go r.forwardSendEvents(sendEvents)
 
 	r.cancel = cancel
 	r.active = acct.Name

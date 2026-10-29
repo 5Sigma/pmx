@@ -44,9 +44,6 @@ jobs:
           go build -trimpath -ldflags="-s -w" \
             -o "dist/pmx-${SUFFIX}${EXT}" .
 
-          go build -trimpath -ldflags="-s -w" \
-            -o "dist/pmxd-${SUFFIX}${EXT}" ./cmd/pmxd
-
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
