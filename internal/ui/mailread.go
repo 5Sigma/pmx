@@ -256,7 +256,7 @@ func (mr mailRead) renderInfoBar() string {
 
 	// ── Meta rows ───────────────────────────────────────────────────────
 	fromLine := mr.metaRow("", "From", formatSender(mr.item))
-	toLine := mr.metaRow("", "To", "user@example.com")
+	toLine := mr.metaRow("", "To", mr.item.to)
 	dateLine := mr.metaRow("", "Date", formatDateTime(mr.item.receivedAt))
 
 	plainRule := styles.InfoRule.Render(strings.Repeat("─", w))

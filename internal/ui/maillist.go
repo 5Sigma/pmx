@@ -449,6 +449,7 @@ type mailItem struct {
 	flags      mail.Flag // current full flag bitmask
 	from       string
 	email      string
+	to         string
 	subject    string
 	preview    string
 	date       string    // terse formatted date for the list column
@@ -483,6 +484,15 @@ func messageToItem(m *mail.Message) mailItem {
 			date = d.Format("Jan 2 2006")
 		}
 	}
+	toAddrs := make([]string, 0, len(m.To))
+	for _, a := range m.To {
+		if a.Name != "" {
+			toAddrs = append(toAddrs, a.Name+"  <"+a.Email+">")
+		} else {
+			toAddrs = append(toAddrs, a.Email)
+		}
+	}
+
 	return mailItem{
 		messageID:  m.ID,
 		folderID:   m.FolderID,
@@ -490,6 +500,7 @@ func messageToItem(m *mail.Message) mailItem {
 		flags:      m.Flags,
 		from:       from,
 		email:      m.From.Email,
+		to:         strings.Join(toAddrs, ", "),
 		subject:    m.Subject,
 		preview:    truncate(strings.Join(strings.Fields(m.BodyText), " "), 120),
 		date:       date,
