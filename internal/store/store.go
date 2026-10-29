@@ -25,6 +25,10 @@ func Open(dbPath, attachsDir string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
+	// SQLite only supports one writer at a time; pin to a single connection so
+	// pragmas (including busy_timeout) are always in effect on every operation.
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
 
 	pragmas := []string{
 		"PRAGMA journal_mode = WAL",
