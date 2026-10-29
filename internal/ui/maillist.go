@@ -40,7 +40,10 @@ type mailList struct {
 // messagesLoadedMsg is dispatched asynchronously once the store has returned
 // a batch of messages for the active folder. The payload replaces the current
 // list items. An empty slice renders an empty list.
-type messagesLoadedMsg []*mail.Message
+type messagesLoadedMsg struct {
+	folderID int64
+	messages []*mail.Message
+}
 
 func newMailList(store mail.MessageStore, cfg *config.Config, sender mailops.SendOps, folderID int64, folderName string, folderRole mail.FolderRole) mailList {
 	items := []list.Item{}
@@ -84,15 +87,18 @@ func (ml mailList) Init() tea.Cmd {
 		if err != nil {
 			return nil
 		}
-		return messagesLoadedMsg(msgs)
+		return messagesLoadedMsg{folderID: folderID, messages: msgs}
 	}
 }
 
 func (ml mailList) Update(msg tea.Msg) (View, tea.Cmd) {
 	switch msg := msg.(type) {
 	case messagesLoadedMsg:
-		items := make([]list.Item, len(msg))
-		for i, m := range msg {
+		if msg.folderID != ml.folderID {
+			return ml, nil
+		}
+		items := make([]list.Item, len(msg.messages))
+		for i, m := range msg.messages {
 			items[i] = messageToItem(m)
 		}
 		return ml, ml.list.SetItems(items)
