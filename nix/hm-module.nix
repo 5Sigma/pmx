@@ -3,8 +3,8 @@ self:
 
 let
   cfg = config.services.pmxd;
-  isLinux  = pkgs.stdenv.isLinux;
-  isDarwin = pkgs.stdenv.isDarwin;
+  isLinux  = pkgs.stdenv.hostPlatform.isLinux;
+  isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
   exe = lib.escapeShellArgs ([ "${cfg.package}/bin/pmx" "daemon" ] ++ cfg.extraArgs);
 
   # If the user has programs.password-store enabled with a non-default store
