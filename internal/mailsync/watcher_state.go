@@ -42,6 +42,7 @@ func (h *watcherHandle) observe(ev Event) {
 	case FolderStarted:
 		h.mu.Lock()
 		h.folder = e.Folder
+		h.lastErr = ""
 		h.mu.Unlock()
 	case FolderDone:
 		h.mu.Lock()
