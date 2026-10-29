@@ -15,6 +15,7 @@ type WatcherState struct {
 	Folder    string    // currently SELECTed mailbox (best-effort)
 	LastEvent time.Time // last FolderDone or IDLE wake
 	LastError string    // most recent WatchError text; cleared on next success
+	ErrSince  time.Time // when the current error streak started; zero if no error
 }
 
 // observe updates the watcher handle's live-state fields in response to an
@@ -37,17 +38,22 @@ func (h *watcherHandle) observe(ev Event) {
 		h.mu.Lock()
 		if e.Err != nil {
 			h.lastErr = e.Err.Error()
+			if h.errSince.IsZero() {
+				h.errSince = time.Now()
+			}
 		}
 		h.mu.Unlock()
 	case FolderStarted:
 		h.mu.Lock()
 		h.folder = e.Folder
 		h.lastErr = ""
+		h.errSince = time.Time{}
 		h.mu.Unlock()
 	case FolderDone:
 		h.mu.Lock()
 		h.lastEvent = time.Now()
 		h.lastErr = ""
+		h.errSince = time.Time{}
 		h.mu.Unlock()
 	}
 }
@@ -78,5 +84,6 @@ func (e *Engine) WatcherState(acct string) WatcherState {
 		Folder:    h.folder,
 		LastEvent: h.lastEvent,
 		LastError: h.lastErr,
+		ErrSince:  h.errSince,
 	}
 }

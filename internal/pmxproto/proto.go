@@ -43,6 +43,7 @@ type rawMsg struct {
 	Running   bool      `json:"running,omitempty"`
 	IDLE      bool      `json:"idle,omitempty"`
 	LastEvent time.Time `json:"lastEvent,omitempty"`
+	ErrSince  time.Time `json:"errSince,omitempty"`
 }
 
 // Typed command structs (TUI → daemon).
@@ -212,6 +213,7 @@ func EncodeEvent(w io.Writer, ev any) error {
 			Folder:    e.Folder,
 			LastEvent: e.LastEvent,
 			ErrStr:    e.LastError,
+			ErrSince:  e.ErrSince,
 		}
 	default:
 		return nil // silently skip unknown/unforwarded event types
@@ -296,6 +298,7 @@ func DecodeEvent(r *bufio.Reader) (tea.Msg, error) {
 			Folder:    m.Folder,
 			LastEvent: m.LastEvent,
 			LastError: m.ErrStr,
+			ErrSince:  m.ErrSince,
 		}, nil
 	default:
 		return nil, nil // unknown event; caller should skip

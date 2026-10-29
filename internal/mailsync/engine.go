@@ -63,6 +63,7 @@ type watcherHandle struct {
 	folder    string
 	lastEvent time.Time
 	lastErr   string
+	errSince  time.Time // when the current error streak started; zero if no error
 }
 
 // Engine performs IMAP synchronisation and persists results via a MessageStore.

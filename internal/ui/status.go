@@ -1084,14 +1084,23 @@ func renderConnectionBlock(a config.Account, w int) string {
 	return b.String()
 }
 
+// errGrace is how long a watcher error must persist before the UI shows
+// DISCONNECTED. Transient drops (e.g. server closing an idle connection)
+// typically recover within a few seconds and never breach this threshold.
+const errGrace = 15 * time.Second
+
 // renderWatcherBlock paints the live-state chip + folder + last-event line,
 // then an error callout when LastError is non-empty.
 func renderWatcherBlock(w mailsync.WatcherState, acct config.Account, width int) string {
+	// Only surface an error once it has persisted past the grace period, so
+	// brief transient reconnects don't flash DISCONNECTED at the user.
+	showErr := w.LastError != "" && !w.ErrSince.IsZero() && time.Since(w.ErrSince) >= errGrace
+
 	var chip string
 	switch {
 	case !w.Running:
 		chip = statusChipMuted.Render(" NOT STARTED ")
-	case w.LastError != "":
+	case showErr:
 		chip = statusChipDanger.Render(" DISCONNECTED ")
 	case w.IDLE:
 		chip = statusChipAccent.Render(" IDLE ACTIVE ")
@@ -1120,7 +1129,7 @@ func renderWatcherBlock(w mailsync.WatcherState, acct config.Account, width int)
 	errLine := statusBody.Render("  ") +
 		statusLabel.Render("error ") +
 		statusValueMuted.Render("none")
-	if w.LastError != "" {
+	if showErr {
 		errLine = statusBody.Render("  ") +
 			statusLabel.Render("error ") +
 			statusCalloutDanger.Render(w.LastError)
