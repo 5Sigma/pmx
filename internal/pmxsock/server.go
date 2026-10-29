@@ -124,11 +124,11 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn, c *serverClient)
 		if err != nil {
 			return // EOF or closed connection
 		}
-		s.dispatch(cmd)
+		s.dispatch(c, cmd)
 	}
 }
 
-func (s *Server) dispatch(cmd any) {
+func (s *Server) dispatch(reply *serverClient, cmd any) {
 	switch c := cmd.(type) {
 	case pmxproto.CmdRefresh:
 		_ = s.engine.Refresh(c.Account)
@@ -155,6 +155,13 @@ func (s *Server) dispatch(cmd any) {
 		}
 	case pmxproto.CmdDrain:
 		_ = s.sender.Trigger(c.Account)
+	case pmxproto.CmdWatcherState:
+		state := s.engine.WatcherState(c.Account)
+		select {
+		case reply.ch <- state:
+		default:
+			s.logger.Warn("pmxsock: client event channel full, dropping watcher state reply", "account", c.Account)
+		}
 	default:
 		s.logger.Warn("pmxsock: unknown command type", "type", fmt.Sprintf("%T", cmd))
 	}

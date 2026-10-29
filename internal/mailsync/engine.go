@@ -45,13 +45,24 @@ type moveOp struct {
 	dest     string
 }
 
-// watcherHandle holds the channels for a running watcher goroutine.
+// watcherHandle holds the channels for a running watcher goroutine, plus a
+// mu-guarded snapshot of its last known state (surfaced via WatcherState).
 type watcherHandle struct {
 	poke         chan struct{}
 	flagOps      chan flagOp
 	moveOps      chan moveOp
 	switchFolder chan string   // buffered 1; request to re-SELECT a new mailbox
 	sweep        chan struct{} // buffered 1; sweepLoop pokes the main IDLE/poll loop
+
+	// Live state fields read via (*Engine).WatcherState. All reads and writes
+	// go through mu so the Watch goroutine and the status screen can observe
+	// each other without a race on handle teardown.
+	mu        sync.Mutex
+	running   bool
+	idle      bool
+	folder    string
+	lastEvent time.Time
+	lastErr   string
 }
 
 // Engine performs IMAP synchronisation and persists results via a MessageStore.
@@ -330,6 +341,7 @@ func (e *Engine) Watch(ctx context.Context, acct config.Account, pollInterval, s
 	}()
 
 	emit := func(ev Event) {
+		h.observe(ev)
 		if events != nil {
 			events <- ev
 		}
@@ -469,10 +481,12 @@ func (e *Engine) watchOnce(ctx context.Context, acct config.Account, authFn func
 	caps := c.Caps()
 	if caps.Has(imap.CapIdle) && (acct.IDLEEnabled == nil || *acct.IDLEEnabled) {
 		e.logger.Debug("watchOnce: entering IDLE loop", "account", acct.Name)
+		h.setIdle(true)
 		return e.idleLoop(ctx, c, acct, folderID, accountID, serverUIDValidity, combinedPoke, flagOps, moveOps, h.switchFolder, h.sweep, sweepInterval, emit)
 	}
 	idleEnabled := acct.IDLEEnabled == nil || *acct.IDLEEnabled
 	e.logger.Debug("watchOnce: entering poll loop", "account", acct.Name, "idle_cap", caps.Has(imap.CapIdle), "idle_enabled", idleEnabled, "interval", pollInterval)
+	h.setIdle(false)
 	return e.pollLoop(ctx, c, acct, folderID, accountID, serverUIDValidity, combinedPoke, flagOps, moveOps, h.switchFolder, h.sweep, sweepInterval, pollInterval, emit)
 }
 

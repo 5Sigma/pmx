@@ -408,6 +408,10 @@ func (ml mailList) KeyMap() keymap.KeyMap {
 					Key: "r", Desc: "refresh / sync", Accent: true,
 					Action: func() keymap.Result { return keymap.Result{Message: refreshMsg{}} },
 				},
+				{
+					Key: "?", Desc: "status",
+					Action: func() keymap.Result { return keymap.Result{Message: openStatusMsg{}} },
+				},
 			}
 			if ml.cfg != nil && len(ml.cfg.Accounts) > 1 {
 				entries = append(entries, keymap.Entry{

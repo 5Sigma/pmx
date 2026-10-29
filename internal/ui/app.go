@@ -145,6 +145,10 @@ type folderSelectedMsg struct {
 // openAccountDrawerMsg asks the shell to reveal the account drawer.
 type openAccountDrawerMsg struct{}
 
+// openStatusMsg asks the shell to push the status/debug screen on top of the
+// current view. Dispatched by the mail list's `<Space> ?` leader binding.
+type openStatusMsg struct{}
+
 // openPathPickerMsg asks the shell to reveal the path-picker bottom panel.
 // Any view may emit this message; the root model opens the picker and routes
 // keys to it until the user accepts or cancels.
@@ -320,13 +324,24 @@ type Model struct {
 	// Sync/send ops and the account to use for background ops.
 	ops    mailops.MailOps
 	send   mailops.SendOps
+	status mailops.StatusOps
 	runner *accountrunner.Runner
 
 	activeAcct *config.Account
 	cfg        *config.Config
 
+	// daemonMode is true when the TUI is proxying through pmx daemon via the
+	// Unix socket; false when ops run in-process. Surfaced read-only by the
+	// status screen; not used for routing decisions.
+	daemonMode bool
+
 	// daemonDisconnected is set when the socket to pmx daemon closes mid-session.
 	daemonDisconnected bool
+
+	// watcherStates caches the latest per-account mailsync.WatcherState payload
+	// observed on the event stream. The status screen reads this directly;
+	// updates arrive from either the standalone engine or a daemon reply.
+	watcherStates map[string]mailsync.WatcherState
 
 	syncingAcct string // name of account being switched to; "" when idle
 	flashAcct   bool   // true for 400ms after a successful switch
@@ -370,13 +385,17 @@ type Model struct {
 	syncSpinner spinner.Model
 }
 
-// New constructs the root Model. ops, send, and activeAcct may be nil when no
-// account is configured; all code paths tolerate that.
+// New constructs the root Model. ops, send, status, and activeAcct may be nil
+// when no account is configured; all code paths tolerate that.
 //
 // accountID and inboxFolderID resolve the initial mail list context. When the
 // caller cannot resolve either (no store / no account) they may pass 0; the
 // mail list will render empty until a sync populates the store.
-func New(store mail.MessageStore, ops mailops.MailOps, send mailops.SendOps, activeAcct *config.Account, cfg *config.Config, accountID, inboxFolderID int64, runner *accountrunner.Runner) Model {
+//
+// daemonMode is true when ops/send are backed by a pmxsock.Client (thin-client
+// mode) and false in standalone mode. The flag is surfaced read-only by the
+// status screen.
+func New(store mail.MessageStore, ops mailops.MailOps, send mailops.SendOps, status mailops.StatusOps, activeAcct *config.Account, cfg *config.Config, accountID, inboxFolderID int64, runner *accountrunner.Runner, daemonMode bool) Model {
 	wk := whichkey.New()
 
 	folderDrawer := folderdrawer.New(nil)
@@ -402,9 +421,12 @@ func New(store mail.MessageStore, ops mailops.MailOps, send mailops.SendOps, act
 		store:         store,
 		ops:           ops,
 		send:          send,
+		status:        status,
 		runner:        runner,
 		activeAcct:    activeAcct,
 		cfg:           cfg,
+		daemonMode:    daemonMode,
+		watcherStates: make(map[string]mailsync.WatcherState),
 		accountID:     accountID,
 		curFolder:     inboxFolderID,
 		synced:        time.Now(),
@@ -924,6 +946,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Non-fatal: let the watcher retry. Store last error string for display in the chrome.
 		m.watchStatus = "reconnecting…"
 		return m, nil
+
+	case mailsync.WatcherState:
+		// Snapshot delivered by the standalone engine or daemon reply. Cache
+		// so the status screen can read it synchronously. Forward to the top
+		// view so an open status screen can trigger a tab refresh.
+		if m.watcherStates == nil {
+			m.watcherStates = make(map[string]mailsync.WatcherState)
+		}
+		m.watcherStates[msg.Account] = msg
+		top, cmd := m.top().Update(msg)
+		m.stack[len(m.stack)-1] = top
+		return m, cmd
+
+	case openStatusMsg:
+		return m, Push(newStatusView(m.cfg, m.store, m.status, m.daemonMode, m.watcherStates))
 
 	case mailsend.WorkerStarted:
 		return m, nil

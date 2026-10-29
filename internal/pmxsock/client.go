@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/5Sigma/pmx/internal/config"
+	"github.com/5Sigma/pmx/internal/mailsync"
 	"github.com/5Sigma/pmx/internal/pmxproto"
 )
 
@@ -125,4 +126,14 @@ func (c *Client) MoveToFolder(acct config.Account, folderID int64, uid uint32, d
 
 func (c *Client) Trigger(acct string) error {
 	return c.write(pmxproto.CmdDrain{Account: acct})
+}
+
+// StatusOps implementation — satisfies internal/mailops.StatusOps.
+//
+// WatcherState fires a CmdWatcherState and returns an empty placeholder.
+// The real snapshot arrives asynchronously as a mailsync.WatcherState event
+// on the shared event stream and is cached by the TUI model.
+func (c *Client) WatcherState(acct string) mailsync.WatcherState {
+	_ = c.write(pmxproto.CmdWatcherState{Account: acct})
+	return mailsync.WatcherState{Account: acct}
 }

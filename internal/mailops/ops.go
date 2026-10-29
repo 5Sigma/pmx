@@ -6,7 +6,10 @@
 // other's transitive deps (notably, mcpserver no longer imports ui).
 package mailops
 
-import "github.com/5Sigma/pmx/internal/config"
+import (
+	"github.com/5Sigma/pmx/internal/config"
+	"github.com/5Sigma/pmx/internal/mailsync"
+)
 
 // MailOps is the sync engine's mutation surface.
 type MailOps interface {
@@ -22,4 +25,13 @@ type MailOps interface {
 // SendOps is the send engine's trigger surface.
 type SendOps interface {
 	Trigger(acct string) error
+}
+
+// StatusOps is the read-only surface the status screen queries for per-account
+// live watcher state. The standalone engine answers synchronously; the daemon
+// client fires a request and the real snapshot arrives later as a
+// pmxproto.WatcherStateEvent on the shared event stream (so the first return
+// after a daemon round-trip is a zero-value placeholder).
+type StatusOps interface {
+	WatcherState(acct string) mailsync.WatcherState
 }

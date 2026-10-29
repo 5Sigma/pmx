@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -37,6 +38,11 @@ type rawMsg struct {
 	ErrStr   string `json:"err,omitempty"`
 	ItemID   int64  `json:"itemID,omitempty"`
 	Attempts int    `json:"attempts,omitempty"`
+	// WatcherState snapshot fields (encoded on both the CmdWatcherState
+	// request's response event and never on the request itself).
+	Running   bool      `json:"running,omitempty"`
+	IDLE      bool      `json:"idle,omitempty"`
+	LastEvent time.Time `json:"lastEvent,omitempty"`
 }
 
 // Typed command structs (TUI → daemon).
@@ -72,6 +78,7 @@ type CmdMoveToFolder struct {
 	Dst      string
 }
 type CmdDrain struct{ Account string }
+type CmdWatcherState struct{ Account string }
 
 // EncodeCommand marshals a typed command struct to a JSON line on w.
 func EncodeCommand(w io.Writer, cmd any) error {
@@ -95,6 +102,8 @@ func EncodeCommand(w io.Writer, cmd any) error {
 		m = rawMsg{Cmd: "MoveToFolder", Account: c.Account, FolderID: c.FolderID, UID: c.UID, Dst: c.Dst}
 	case CmdDrain:
 		m = rawMsg{Cmd: "Drain", Account: c.Account}
+	case CmdWatcherState:
+		m = rawMsg{Cmd: "WatcherState", Account: c.Account}
 	default:
 		return fmt.Errorf("pmxproto: unknown command type %T", cmd)
 	}
@@ -136,6 +145,8 @@ func DecodeCommand(r *bufio.Reader) (any, error) {
 		return CmdMoveToFolder{m.Account, m.FolderID, m.UID, m.Dst}, nil
 	case "Drain":
 		return CmdDrain{m.Account}, nil
+	case "WatcherState":
+		return CmdWatcherState{m.Account}, nil
 	default:
 		return nil, fmt.Errorf("pmxproto: unknown command %q", m.Cmd)
 	}
@@ -192,6 +203,16 @@ func EncodeEvent(w io.Writer, ev any) error {
 			errStr = e.Err.Error()
 		}
 		m = rawMsg{Ev: "SendFailed", Account: e.Account, ItemID: e.ItemID, Attempts: e.Attempts, ErrStr: errStr}
+	case mailsync.WatcherState:
+		m = rawMsg{
+			Ev:        "WatcherState",
+			Account:   e.Account,
+			Running:   e.Running,
+			IDLE:      e.IDLE,
+			Folder:    e.Folder,
+			LastEvent: e.LastEvent,
+			ErrStr:    e.LastError,
+		}
 	default:
 		return nil // silently skip unknown/unforwarded event types
 	}
@@ -267,6 +288,15 @@ func DecodeEvent(r *bufio.Reader) (tea.Msg, error) {
 			e = errors.New(m.ErrStr)
 		}
 		return mailsend.SendFailed{Account: m.Account, ItemID: m.ItemID, Attempts: m.Attempts, Err: e}, nil
+	case "WatcherState":
+		return mailsync.WatcherState{
+			Account:   m.Account,
+			Running:   m.Running,
+			IDLE:      m.IDLE,
+			Folder:    m.Folder,
+			LastEvent: m.LastEvent,
+			LastError: m.ErrStr,
+		}, nil
 	default:
 		return nil, nil // unknown event; caller should skip
 	}

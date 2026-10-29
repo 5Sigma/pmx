@@ -10,11 +10,12 @@ import (
 	"github.com/5Sigma/pmx/internal/pmxsock"
 )
 
-// clientMode holds the resolved MailOps / SendOps and an optional daemon
-// client when the pmx daemon was detected via its Unix socket.
+// clientMode holds the resolved MailOps / SendOps / StatusOps and an optional
+// daemon client when the pmx daemon was detected via its Unix socket.
 type clientMode struct {
 	Ops          mailops.MailOps
 	Send         mailops.SendOps
+	Status       mailops.StatusOps
 	DaemonClient *pmxsock.Client
 }
 
@@ -25,7 +26,13 @@ func resolveClientMode(engine *mailsync.Engine, sender *mailsend.Engine, logger 
 	sockPath, _ := config.PmxdSocketPath()
 	if dc, err := pmxsock.Dial(sockPath, logger); err == nil {
 		logger.Info("pmx daemon detected via socket; proxying ops over it")
-		return clientMode{Ops: dc, Send: dc, DaemonClient: dc}
+		return clientMode{Ops: dc, Send: dc, Status: dc, DaemonClient: dc}
 	}
-	return clientMode{Ops: engine, Send: sender}
+	// engine may be nil when the store is unavailable; StatusOps tolerates nil
+	// at the call site (status screen renders "unavailable").
+	var status mailops.StatusOps
+	if engine != nil {
+		status = engine
+	}
+	return clientMode{Ops: engine, Send: sender, Status: status}
 }

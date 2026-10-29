@@ -137,7 +137,7 @@ func runTUI() error {
 	}
 
 	p := tea.NewProgram(
-		ui.New(st, mode.Ops, mode.Send, initialAcct, cfg, accountID, inboxFolderID, runner),
+		ui.New(st, mode.Ops, mode.Send, mode.Status, initialAcct, cfg, accountID, inboxFolderID, runner, mode.DaemonClient != nil),
 		opts...,
 	)
 	if runner != nil {
