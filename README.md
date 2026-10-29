@@ -24,6 +24,27 @@ pmx is a terminal email client built to be easy to use and polished.  Living in 
 
 ---
 
+## Table of Contents
+
+- [Features](#features)
+- [Install](#install)
+  - [Pre-built binaries](#pre-built-binaries)
+  - [NixOS (flake)](#nixos-flake)
+  - [From source](#from-source)
+  - [Build locally](#build-locally)
+- [Quick Start](#quick-start)
+- [Configuration](#configuration)
+- [MCP Server](#mcp-server)
+- [Storage](#storage)
+- [License](#license)
+
+### Provider setup guides
+
+- [Gmail OAuth2 setup](docs/gmail-setup.md)
+- [Office 365 OAuth2 setup](docs/office365-setup.md)
+
+---
+
 ## Features
 
 **Zero-friction navigation**  
@@ -177,13 +198,13 @@ go build .
 
 ### 1. Add an account
 
-**Gmail**
+**Gmail** — [full setup guide](docs/gmail-setup.md)
 ```sh
 pmx account add --provider gmail
 ```
 Walks you through a browser-based OAuth2 flow. No app password or 2FA gymnastics required.
 
-**Office 365**
+**Office 365** — [full setup guide](docs/office365-setup.md)
 ```sh
 pmx account add --provider o365
 ```
