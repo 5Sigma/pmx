@@ -78,6 +78,50 @@ func (s *Store) GetOAuth(accountName string) (string, error) {
 	return tok.AccessToken, nil
 }
 
+// GetFresh is like Get but forces an OAuth2 refresh grant regardless of whether
+// the stored access token is still within its expiry window. Use this for SMTP
+// sends where a server-side-revoked token (e.g. after a session invalidation)
+// would otherwise be served from cache until the local Expiry timestamp passes.
+// For non-OAuth2 accounts it behaves identically to Get.
+func (s *Store) GetFresh(accountName string) (string, error) {
+	acct, ok := s.account(accountName)
+	if !ok {
+		return "", fmt.Errorf("unknown account %q", accountName)
+	}
+	if acct.Auth != "oauth2" {
+		return s.Get(accountName)
+	}
+
+	raw, err := s.keyring.Get("pmx-oauth", acct.OAuthTokenRef)
+	if err != nil {
+		return "", fmt.Errorf("reading OAuth token for %q: %w", accountName, err)
+	}
+	stored, err := oauth.UnmarshalToken(raw)
+	if err != nil {
+		return "", fmt.Errorf("parsing stored OAuth token for %q: %w", accountName, err)
+	}
+
+	var p oauth.Provider
+	if acct.IMAPHost == "imap.gmail.com" {
+		p = oauth.GmailProvider()
+	} else {
+		p = oauth.O365Provider(acct.OAuthTenant)
+	}
+
+	// Clear the access token so ReuseTokenSource sees an invalid token and
+	// is forced to perform a refresh grant rather than returning the cached one.
+	refresh := &oauth2.Token{RefreshToken: stored.RefreshToken}
+	ts := oauth.NewTokenSource(context.Background(), p, acct.OAuthClientID, acct.OAuthClientSecret, refresh)
+	tok, err := ts.Token()
+	if err != nil {
+		return "", fmt.Errorf("force-refreshing OAuth token for %q: %w — re-run `pmx account add --provider o365` to re-authenticate", accountName, err)
+	}
+	if err := s.persistRefreshToken(accountName, tok); err != nil {
+		return "", err
+	}
+	return tok.AccessToken, nil
+}
+
 // OAuthTokenSource builds an oauth2.TokenSource that auto-refreshes for the
 // given account. Callers that hold long-lived IMAP sessions (e.g. IDLE watcher)
 // should hold the TokenSource and call Token() on each reconnect.

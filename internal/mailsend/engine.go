@@ -97,17 +97,9 @@ func (e *Engine) Run(ctx context.Context, acct config.Account, pollInterval time
 
 	emit(WorkerStarted{Account: acct.Name})
 
-	e.logger.Debug("Run: resolving secret", "account", acct.Name)
-	pass, err := e.secrets.Get(acct.Name)
-	if err != nil {
-		e.logger.Error("Run: secret resolution failed", "account", acct.Name, "err", err)
-		emit(WorkerStopped{Account: acct.Name, Err: err})
-		return err
-	}
-
 	runErr := workerloop.Run(ctx, e.logger, "send "+acct.Name,
 		func(ctx context.Context) error {
-			return e.drainLoop(ctx, acct, pass, poke, pollInterval, emit)
+			return e.drainLoop(ctx, acct, poke, pollInterval, emit)
 		},
 		func(err error) { emit(WorkerError{Account: acct.Name, Err: err}) },
 	)
@@ -117,12 +109,12 @@ func (e *Engine) Run(ctx context.Context, acct config.Account, pollInterval time
 
 // drainLoop polls and drains the outbox on every tick or poke until ctx is
 // cancelled or a worker-level error (e.g. DB failure) occurs.
-func (e *Engine) drainLoop(ctx context.Context, acct config.Account, pass string, poke <-chan struct{}, pollInterval time.Duration, emit func(Event)) error {
+func (e *Engine) drainLoop(ctx context.Context, acct config.Account, poke <-chan struct{}, pollInterval time.Duration, emit func(Event)) error {
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
 	// Drain immediately on first entry.
-	if err := e.drainQueue(ctx, acct, pass, emit); err != nil {
+	if err := e.drainQueue(ctx, acct, emit); err != nil {
 		return err
 	}
 
@@ -133,7 +125,7 @@ func (e *Engine) drainLoop(ctx context.Context, acct config.Account, pass string
 		case <-ticker.C:
 		case <-poke:
 		}
-		if err := e.drainQueue(ctx, acct, pass, emit); err != nil {
+		if err := e.drainQueue(ctx, acct, emit); err != nil {
 			return err
 		}
 	}
@@ -142,7 +134,15 @@ func (e *Engine) drainLoop(ctx context.Context, acct config.Account, pass string
 // drainQueue fetches all pending outbox rows for acct and calls sendOneWithPass
 // for each. Per-item SMTP errors are recorded on the row and do not propagate;
 // only store-level errors are returned.
-func (e *Engine) drainQueue(ctx context.Context, acct config.Account, pass string, emit func(Event)) error {
+func (e *Engine) drainQueue(ctx context.Context, acct config.Account, emit func(Event)) error {
+	// Always force-refresh OAuth2 tokens so a server-side-revoked token is never
+	// reused across drain cycles (ReuseTokenSource would otherwise serve a cached
+	// access token until its local Expiry passes).
+	pass, err := e.secrets.GetFresh(acct.Name)
+	if err != nil {
+		return fmt.Errorf("resolve secret: %w", err)
+	}
+
 	accountID, err := e.store.EnsureAccount(acct.Name, acct.Email)
 	if err != nil {
 		return fmt.Errorf("ensure account: %w", err)
@@ -187,9 +187,5 @@ func (e *Engine) drainQueue(ctx context.Context, acct config.Account, pass strin
 
 // DrainOnce performs a single outbox drain for acct. Used by pmxd.
 func (e *Engine) DrainOnce(ctx context.Context, acct config.Account) error {
-	pass, err := e.secrets.Get(acct.Name)
-	if err != nil {
-		return fmt.Errorf("drain once: secret: %w", err)
-	}
-	return e.drainQueue(ctx, acct, pass, func(Event) {})
+	return e.drainQueue(ctx, acct, func(Event) {})
 }
