@@ -148,6 +148,17 @@ func (s *Store) CountUnread(folderID int64) (int, error) {
 	return n, nil
 }
 
+func (s *Store) CountMessages(folderID int64) (int, error) {
+	var n int
+	err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM messages WHERE folder_id = ?`, folderID,
+	).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count messages folder %d: %w", folderID, err)
+	}
+	return n, nil
+}
+
 func (s *Store) ByUID(folderID int64, uid uint32) (*Message, error) {
 	row := s.db.QueryRow(`
 		SELECT id, folder_id, uid, message_id, in_reply_to, references_,

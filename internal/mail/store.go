@@ -25,6 +25,8 @@ type MessageStore interface {
 	// CountUnread returns the number of messages in a folder that lack the
 	// \Seen flag. Returns 0, nil for an unknown folder.
 	CountUnread(folderID int64) (int, error)
+	// CountMessages returns the number of messages stored locally in a folder.
+	CountMessages(folderID int64) (int, error)
 	// ByUID fetches a single message by IMAP UID.
 	ByUID(folderID int64, uid uint32) (*Message, error)
 	// Body returns the plain-text body of a message.
@@ -78,6 +80,8 @@ type MessageStore interface {
 	MarkOutboxSent(id int64) error
 	// MarkOutboxFailed increments attempts and records the error string.
 	MarkOutboxFailed(id int64, errMsg string) error
+	// GetOutboxItem returns the outbox row for id, or (nil, false, nil) if deleted.
+	GetOutboxItem(id int64) (*OutboxItem, bool, error)
 	// ClaimPendingOutbox atomically claims up to limit unclaimed outbox rows for
 	// accountID and returns them. Rows locked_at more than staleAfter ago are
 	// considered abandoned and eligible for re-claiming.

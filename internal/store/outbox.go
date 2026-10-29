@@ -1,6 +1,8 @@
 package store
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -89,6 +91,22 @@ func (s *Store) ClaimPendingOutbox(accountID int64, claimant string, limit int, 
 	}
 	defer func() { _ = rows.Close() }()
 	return scanOutboxRows(rows)
+}
+
+func (s *Store) GetOutboxItem(id int64) (*mail.OutboxItem, bool, error) {
+	const q = `SELECT id, account_id, raw_eml, queued_at, attempts, COALESCE(last_error,'')
+               FROM outbox WHERE id = ?`
+	var item mail.OutboxItem
+	var queuedAt int64
+	err := s.db.QueryRow(q, id).Scan(&item.ID, &item.AccountID, &item.RawEML, &queuedAt, &item.Attempts, &item.LastError)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("get outbox item: %w", err)
+	}
+	item.QueuedAt = time.Unix(queuedAt, 0)
+	return &item, true, nil
 }
 
 // scanOutboxRows scans sql.Rows into a slice of OutboxItem pointers.
