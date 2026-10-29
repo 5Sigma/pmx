@@ -50,28 +50,23 @@ Download the latest release for your platform from the [Releases](https://github
 **Linux (amd64)**
 ```sh
 curl -Lo pmx https://github.com/5Sigma/pmx/releases/latest/download/pmx-linux-amd64
-curl -Lo pmxd https://github.com/5Sigma/pmx/releases/latest/download/pmxd-linux-amd64
-chmod +x pmx pmxd
-sudo mv pmx pmxd /usr/local/bin/
+chmod +x pmx
+sudo mv pmx /usr/local/bin/
 ```
 
 **macOS (Apple Silicon)**
 ```sh
 curl -Lo pmx https://github.com/5Sigma/pmx/releases/latest/download/pmx-darwin-arm64
-curl -Lo pmxd https://github.com/5Sigma/pmx/releases/latest/download/pmxd-darwin-arm64
-chmod +x pmx pmxd
-sudo mv pmx pmxd /usr/local/bin/
+chmod +x pmx
+sudo mv pmx /usr/local/bin/
 ```
 
 **macOS (Intel)**
 ```sh
 curl -Lo pmx https://github.com/5Sigma/pmx/releases/latest/download/pmx-darwin-amd64
-curl -Lo pmxd https://github.com/5Sigma/pmx/releases/latest/download/pmxd-darwin-amd64
-chmod +x pmx pmxd
-sudo mv pmx pmxd /usr/local/bin/
+chmod +x pmx
+sudo mv pmx /usr/local/bin/
 ```
-
-`pmxd` is the optional background daemon — skip it if you don't need background sync.
 
 ### NixOS (flake)
 
@@ -83,7 +78,7 @@ directly from this repo.
 
 ```sh
 nix run github:5Sigma/pmx            # launch pmx TUI
-nix run github:5Sigma/pmx#pmxd       # run the daemon in the foreground
+nix run github:5Sigma/pmx -- daemon  # run the daemon in the foreground
 ```
 
 **Install into your user profile:**
@@ -133,7 +128,7 @@ systemctl --user status pmxd     # confirm the daemon is running
 journalctl --user -u pmxd -f     # tail its logs
 ```
 
-Both `pmx` and `pmxd` are on your PATH after switching.
+`pmx` is on your PATH after switching. The daemon runs as `pmx daemon`.
 
 **Overlay (without Home Manager):**
 
@@ -174,7 +169,6 @@ go install github.com/5Sigma/pmx@latest
 git clone https://github.com/5Sigma/pmx
 cd pmx
 go build .
-go build ./cmd/pmxd     # optional background daemon
 ```
 
 ---
@@ -220,11 +214,11 @@ pmx
 
 ### 3. Run the background daemon *(optional)*
 
-`pmxd` syncs your mail on a schedule and sends desktop notifications for new messages. You can run it manually or wire it into your system's service manager so it starts at login.
+The daemon syncs your mail on a schedule and sends desktop notifications for new messages. You can run it manually or wire it into your system's service manager so it starts at login.
 
 **Run manually**
 ```sh
-pmxd
+pmx daemon
 ```
 
 **Linux — systemd user service**
@@ -236,7 +230,7 @@ mkdir -p ~/.config/systemd/user
 cp /path/to/contrib/pmxd.service ~/.config/systemd/user/pmxd.service
 ```
 
-If `pmxd` is not at `~/.local/bin/pmxd`, edit the `ExecStart` line to match your install path, then:
+If `pmx` is not at `~/.local/bin/pmx`, edit the `ExecStart` line to match your install path, then:
 
 ```sh
 systemctl --user daemon-reload
@@ -259,7 +253,8 @@ Create `~/Library/LaunchAgents/io.5sigma.pmxd.plist`:
   <string>io.5sigma.pmxd</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/usr/local/bin/pmxd</string>
+    <string>/usr/local/bin/pmx</string>
+    <string>daemon</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
@@ -274,7 +269,7 @@ Create `~/Library/LaunchAgents/io.5sigma.pmxd.plist`:
 </plist>
 ```
 
-Adjust `ProgramArguments` if `pmxd` is installed elsewhere, then load it:
+Adjust `ProgramArguments` if `pmx` is installed elsewhere, then load it:
 
 ```sh
 launchctl load ~/Library/LaunchAgents/io.5sigma.pmxd.plist
@@ -334,6 +329,59 @@ scroll_down = ["down", "j"]
 filter     = ["/"]
 refresh    = ["r"]
 ```
+
+---
+
+## MCP Server
+
+`pmx mcp` exposes your email as an [MCP](https://modelcontextprotocol.io) tool server over stdio, letting AI agents (Claude Code, Claude Desktop, Cursor, Cline, Continue, Zed) read and manage mail without raw IMAP access.
+
+### Setup
+
+**Claude Code**
+
+```sh
+claude mcp add --scope user pmx -- pmx mcp
+```
+
+Restart any open Claude Code sessions to pick up the new server.
+
+**Claude Desktop / other clients** — add to your MCP config:
+
+```json
+{
+  "mcpServers": {
+    "pmx": {
+      "command": "pmx",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+`pmx mcp` reads from the same local SQLite store as the TUI. If `pmxd` is not running it starts its own sync goroutines, so mutations (mark read, move, delete, send) still propagate to the server.
+
+### Tool reference
+
+| Tool | Description |
+|------|-------------|
+| `list_accounts` | List configured accounts (name, email — no credentials). |
+| `list_folders` | List folders for an account with unread and total counts. |
+| `list_messages` | List messages in a folder, newest first. Supports `unread_only`, `limit`, and `offset`. |
+| `get_message` | Fetch a single message by UID — headers, body (`text`/`html`/`both`), attachment metadata. |
+| `get_attachment` | Download an attachment by ID. Returns base64 content (≤ 10 MB) or an on-disk path for larger files. |
+| `search_messages` | Full-text search (SQLite FTS5) across subject, sender, recipients, and body. |
+| `unread_count` | Count unread messages — per folder, per account, or a global per-account map. |
+| `message_count` | Count messages stored locally in a folder. |
+| `compose_message` | Send a new email, with optional Markdown rendering and base64 attachments. |
+| `reply` | Reply to a message; the original is quoted automatically. |
+| `forward` | Forward a message; original body and attachments are included automatically. |
+| `mark_read` / `mark_unread` | Toggle the read flag on a message. |
+| `flag` / `unflag` | Star or un-star a message. |
+| `move_message` | Move a message to a different folder. |
+| `delete_message` | Move a message to Trash. |
+
+All tools accept `account` (account name) plus either `folder` (exact IMAP mailbox name) or `role` (`inbox`, `sent`, `drafts`, `archive`, `trash`, `junk`) to identify a folder.
 
 ---
 
