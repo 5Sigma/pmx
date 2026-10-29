@@ -20,7 +20,7 @@ buildGoModule rec {
   # Do not remove subPackages or the mock binary will also land in $out/bin.
   subPackages = [ "." ];
 
-  vendorHash = "sha256-cm8No4pxOBGXxcwGhoBZw5oRdyKlFL9g2gDQfYJMj1c=";
+  vendorHash = "sha256-4R6iGmAj+njxRZ8HIImSuVmho0ZplXBZgfXUGA75ns0=";
 
   env.CGO_ENABLED = "0";
 
