@@ -322,7 +322,7 @@ func (e *Engine) runSweep(
 				e.logger.Warn("sweep: SELECT for full refetch failed", "folder", f.Name, "err", err)
 				continue
 			}
-			if err := e.fetchFolder(ctx, c, acct, f.ID, accountID, selectData.UIDValidity, f.Name, emit); err != nil {
+			if err := e.fetchFolder(ctx, c, acct, f.ID, accountID, selectData.UIDValidity, selectData.HighestModSeq, f.Name, emit); err != nil {
 				if ctx.Err() != nil {
 					return newActiveName, 0, ctx.Err()
 				}

@@ -80,7 +80,7 @@ func (e *Engine) syncFolder(ctx context.Context, acct config.Account, folderName
 		return err
 	}
 
-	return e.fetchFolder(ctx, c, acct, folderID, accountID, serverUIDValidity, folderName, emit)
+	return e.fetchFolder(ctx, c, acct, folderID, accountID, serverUIDValidity, selectData.HighestModSeq, folderName, emit)
 }
 
 // shouldRecordContacts returns false for folders whose senders/recipients
@@ -95,9 +95,11 @@ func shouldRecordContacts(r mail.FolderRole) bool {
 
 // fetchFolder performs one catch-up sync pass on an already-authenticated,
 // folder-selected client c. serverUIDValidity is the value returned by the
-// prior SELECT. It emits FolderStarted/FolderDone via emit and respects ctx
-// cancellation between batches. It does NOT login, logout, or SELECT.
-func (e *Engine) fetchFolder(ctx context.Context, c *imapclient.Client, acct config.Account, folderID, accountID int64, serverUIDValidity uint32, folderName string, emit func(Event)) error {
+// prior SELECT. serverHighestModSeq is the HIGHESTMODSEQ from the same SELECT;
+// pass 0 when no fresh SELECT was performed (poke-driven calls). It emits
+// FolderStarted/FolderDone via emit and respects ctx cancellation between
+// batches. It does NOT login, logout, or SELECT.
+func (e *Engine) fetchFolder(ctx context.Context, c *imapclient.Client, acct config.Account, folderID, accountID int64, serverUIDValidity uint32, serverHighestModSeq uint64, folderName string, emit func(Event)) error {
 	folder, err := e.store.GetFolder(folderID)
 	if err != nil {
 		return err
@@ -423,6 +425,10 @@ func (e *Engine) fetchFolder(ctx context.Context, c *imapclient.Client, acct con
 	}
 
 	// Flag refresh for UIDs on both server and store.
+	// When the server supports CONDSTORE and we have a stored HIGHESTMODSEQ,
+	// pass CHANGEDSINCE so only messages whose flags changed since the last sync
+	// are returned — 0 results when nothing changed, avoiding 1000+ round trips
+	// on large mailboxes.
 	existingOnServer := make([]imap.UID, 0, len(existing))
 	for uid := range existing {
 		if _, ok := serverSet[imap.UID(uid)]; ok {
@@ -437,7 +443,11 @@ func (e *Engine) fetchFolder(ctx context.Context, c *imapclient.Client, acct con
 		}
 		batch := existingOnServer[i:min(i+fetchBatchSize, len(existingOnServer))]
 		uidSet := toUIDSet(batch)
-		bufs, err := c.Fetch(uidSet, &imap.FetchOptions{UID: true, Flags: true}).Collect()
+		fetchOpts := &imap.FetchOptions{UID: true, Flags: true}
+		if folder.HighestModSeq > 0 {
+			fetchOpts.ChangedSince = folder.HighestModSeq
+		}
+		bufs, err := c.Fetch(uidSet, fetchOpts).Collect()
 		if err != nil {
 			return fmt.Errorf("flag refresh: %w", err)
 		}
@@ -446,7 +456,7 @@ func (e *Engine) fetchFolder(ctx context.Context, c *imapclient.Client, acct con
 				return err
 			}
 		}
-		updated += len(batch)
+		updated += len(bufs) // count actual responses, not len(batch)
 	}
 
 	// Delete UIDs that no longer exist on the server.
@@ -457,8 +467,14 @@ func (e *Engine) fetchFolder(ctx context.Context, c *imapclient.Client, acct con
 		deleted++
 	}
 
-	// Record folder sync state.
-	if err := e.store.UpdateFolderSync(folderID, serverUIDValidity, 0, time.Now()); err != nil {
+	// Record folder sync state. When the caller had a fresh SELECT result use its
+	// HIGHESTMODSEQ; for poke-driven calls (serverHighestModSeq==0) preserve the
+	// value already stored so subsequent syncs still get CONDSTORE savings.
+	modSeq := serverHighestModSeq
+	if modSeq == 0 {
+		modSeq = folder.HighestModSeq
+	}
+	if err := e.store.UpdateFolderSync(folderID, serverUIDValidity, modSeq, time.Now()); err != nil {
 		return err
 	}
 

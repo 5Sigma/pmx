@@ -474,7 +474,7 @@ func (e *Engine) watchOnce(ctx context.Context, acct config.Account, authFn func
 	}
 
 	// Initial catch-up sync.
-	if err := e.fetchFolder(ctx, c, acct, folderID, accountID, serverUIDValidity, "INBOX", emit); err != nil {
+	if err := e.fetchFolder(ctx, c, acct, folderID, accountID, serverUIDValidity, selectData.HighestModSeq, "INBOX", emit); err != nil {
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -575,7 +575,7 @@ func (e *Engine) idleLoop(ctx context.Context, c *imapclient.Client, acct config
 			if done, err := stopIdle(ctx, idle); done || err != nil {
 				return err
 			}
-			if err := e.fetchFolder(ctx, c, acct, folderID, accountID, uidValidity, currentFolder, emit); err != nil {
+			if err := e.fetchFolder(ctx, c, acct, folderID, accountID, uidValidity, 0, currentFolder, emit); err != nil {
 				if ctx.Err() != nil {
 					return nil
 				}
@@ -598,7 +598,7 @@ func (e *Engine) idleLoop(ctx context.Context, c *imapclient.Client, acct config
 			folderID = fid
 			uidValidity = selectData.UIDValidity
 			currentFolder = name
-			if err := e.fetchFolder(ctx, c, acct, folderID, accountID, uidValidity, currentFolder, emit); err != nil {
+			if err := e.fetchFolder(ctx, c, acct, folderID, accountID, uidValidity, selectData.HighestModSeq, currentFolder, emit); err != nil {
 				if ctx.Err() != nil {
 					return nil
 				}
@@ -681,7 +681,7 @@ func (e *Engine) pollLoop(ctx context.Context, c *imapclient.Client, acct config
 			folderID = fid
 			uidValidity = selectData.UIDValidity
 			currentFolder = name
-			if err := e.fetchFolder(ctx, c, acct, folderID, accountID, uidValidity, currentFolder, emit); err != nil {
+			if err := e.fetchFolder(ctx, c, acct, folderID, accountID, uidValidity, selectData.HighestModSeq, currentFolder, emit); err != nil {
 				if ctx.Err() != nil {
 					return nil
 				}
@@ -723,7 +723,7 @@ func (e *Engine) pollLoop(ctx context.Context, c *imapclient.Client, acct config
 			}
 			continue
 		}
-		if err := e.fetchFolder(ctx, c, acct, folderID, accountID, uidValidity, currentFolder, emit); err != nil {
+		if err := e.fetchFolder(ctx, c, acct, folderID, accountID, uidValidity, 0, currentFolder, emit); err != nil {
 			if ctx.Err() != nil {
 				return nil
 			}
