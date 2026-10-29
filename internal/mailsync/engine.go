@@ -408,10 +408,7 @@ func (e *Engine) watchOnce(ctx context.Context, acct config.Account, authFn func
 		return err
 	}
 	e.logger.Debug("watchOnce: connected", "account", acct.Name)
-	defer func() {
-		_ = c.Logout().Wait()
-		_ = c.Close()
-	}()
+	defer func() { _ = c.Close() }()
 
 	// Discover all mailboxes and build the specialUse map from SPECIAL-USE attrs.
 	mailboxList, err := folders.List(c)

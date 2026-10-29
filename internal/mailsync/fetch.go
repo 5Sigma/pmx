@@ -44,10 +44,7 @@ func (e *Engine) syncFolder(ctx context.Context, acct config.Account, folderName
 		return fmt.Errorf("connect: %w", err)
 	}
 	e.logger.Debug("connected", "account", acct.Name)
-	defer func() {
-		_ = c.Logout().Wait()
-		_ = c.Close()
-	}()
+	defer func() { _ = c.Close() }()
 
 	if discovered, err := folders.Discover(c); err != nil {
 		e.logger.Warn("syncFolder: SPECIAL-USE discovery failed", "account", acct.Name, "err", err)
