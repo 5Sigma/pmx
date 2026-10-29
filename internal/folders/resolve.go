@@ -5,6 +5,7 @@
 package folders
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/emersion/go-imap/v2"
@@ -106,6 +107,14 @@ func ListStatus(c *imapclient.Client) ([]MailboxStatus, error) {
 		data, err := c.List("", "*", opts).Collect()
 		if err != nil {
 			return nil, err
+		}
+		// Guard: some servers advertise LIST-STATUS but return an empty response
+		// and silently close the connection. The close is only surfaced on the
+		// next command. Verify liveness with NOOP when the list is empty.
+		if len(data) == 0 {
+			if nerr := c.Noop().Wait(); nerr != nil {
+				return nil, fmt.Errorf("list-status returned empty and connection check failed: %w", nerr)
+			}
 		}
 		out := make([]MailboxStatus, 0, len(data))
 		for _, d := range data {

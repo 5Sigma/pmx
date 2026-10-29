@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -17,7 +20,10 @@ import (
 	"github.com/5Sigma/pmx/internal/version"
 )
 
-var daemonOnce bool
+var (
+	daemonOnce  bool
+	daemonPprof string
+)
 
 var daemonCmd = &cobra.Command{
 	Use:   "daemon",
@@ -30,6 +36,7 @@ var daemonCmd = &cobra.Command{
 
 func init() {
 	daemonCmd.Flags().BoolVar(&daemonOnce, "once", false, "run a single sync cycle then exit")
+	daemonCmd.Flags().StringVar(&daemonPprof, "pprof", "", "address for pprof HTTP server (e.g. 127.0.0.1:6060)")
 	rootCmd.AddCommand(daemonCmd)
 }
 
@@ -71,6 +78,37 @@ func runDaemon(once bool) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
+
+	if daemonPprof != "" {
+		srv := &http.Server{Addr: daemonPprof, ReadHeaderTimeout: 5 * time.Second}
+		go func() {
+			app.logger.Info("pprof listening", "addr", daemonPprof)
+			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				app.logger.Error("pprof server exited", "err", err)
+			}
+		}()
+		go func() {
+			<-ctx.Done()
+			shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			_ = srv.Shutdown(shutCtx)
+		}()
+	}
+
+	go func() {
+		t := time.NewTicker(5 * time.Minute)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if err := app.rawStore.Checkpoint(); err != nil {
+					app.logger.Warn("wal checkpoint failed", "err", err)
+				}
+			}
+		}
+	}()
 
 	// Start the Unix socket server for TUI ↔ daemon IPC before the daemon
 	// loop begins, so clients can connect as soon as the daemon is ready.

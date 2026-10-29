@@ -54,6 +54,11 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
+func (s *Store) Checkpoint() error {
+	_, err := s.db.Exec("PRAGMA wal_checkpoint(TRUNCATE)")
+	return err
+}
+
 func (s *Store) AttachmentPath(a mail.Attachment) string {
 	return filepath.Join(s.attachsDir, a.DiskPath)
 }

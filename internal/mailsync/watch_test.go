@@ -426,6 +426,68 @@ func TestWatchMoveToTrashMovesMessageToTrash(t *testing.T) {
 	}
 }
 
+// TestWatchPoll_SweepCycleEmitsNoWatchError verifies that when a sweep fires
+// during normal poll-mode operation with a healthy server connection, the
+// engine does NOT emit a WatchError event. This guards the non-fatal sweep
+// path: a sweep that succeeds must leave the watcher running with a clean
+// error state.
+//
+// Note: testing the "sweep fails but NOOP succeeds → stay alive" branch
+// requires injecting a LIST-STATUS failure mid-session, which the mock server
+// does not support. That branch is covered by Change 1's NOOP-failure test
+// (which validates the NOOP error surface); the survive-on-alive behaviour is
+// an integration concern deferred until mock hook injection is available.
+func TestWatchPoll_SweepCycleEmitsNoWatchError(t *testing.T) {
+	_, acct := startMockServer(t)
+	idleOff := false
+	acct.IDLEEnabled = &idleOff
+	_, engine := openTestEngine(t, acct)
+
+	// Use a very short sweep interval (100ms) so at least one sweep fires
+	// during the test window.
+	const sweepInterval = 100 * time.Millisecond
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	events := make(chan mailsync.Event, 64)
+	go func() {
+		_ = engine.Watch(ctx, acct, 10*time.Second, sweepInterval, events)
+	}()
+
+	if _, ok := waitEvent[mailsync.WatchStarted](ctx, events); !ok {
+		t.Fatal("did not receive WatchStarted")
+	}
+
+	// Wait for the initial catch-up sync.
+	initCtx, initCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer initCancel()
+	if _, ok := waitEvent[mailsync.FolderDone](initCtx, events); !ok {
+		t.Fatal("did not receive initial FolderDone")
+	}
+
+	// Give the sweep timer enough time to fire at least twice.
+	time.Sleep(4 * sweepInterval)
+
+	// Drain any events that arrived during the sweep window and fail if any
+	// WatchError was emitted — a healthy sweep must not produce errors.
+	drainCtx, drainCancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer drainCancel()
+	for {
+		select {
+		case ev, ok := <-events:
+			if !ok {
+				return
+			}
+			if we, isErr := ev.(mailsync.WatchError); isErr {
+				t.Errorf("unexpected WatchError during healthy sweep: %v", we.Err)
+			}
+		case <-drainCtx.Done():
+			return
+		}
+	}
+}
+
 // TestWatchMoveToArchiveMovesMessageToArchive starts Watch in poll mode, waits
 // for the initial sync to land at least one INBOX message, calls MoveToArchive
 // for that message's UID, triggers a manual Refresh, then asserts that the

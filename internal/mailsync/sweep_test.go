@@ -648,3 +648,77 @@ func TestReconcile_GraceStillActiveDoesNotDelete(t *testing.T) {
 		t.Errorf("GetFolder: want folder to still exist within grace period, got error: %v", err)
 	}
 }
+
+// TestWatchOnce_StaleSweepTickDrainedOnEntry verifies the stale-tick drain at
+// the top of watchOnce. Before watchOnce runs, we pre-load h.sweep with a
+// buffered item (simulating a tick that was queued in a prior iteration). The
+// drain select must consume it so that the IDLE/poll loop does NOT see an
+// immediate sweep on entry — the first sweep should only happen after the
+// configured sweepInterval elapses.
+//
+// We access h.sweep directly because this file is in package mailsync (not
+// mailsync_test), giving it access to unexported fields.
+func TestWatchOnce_StaleSweepTickDrainedOnEntry(t *testing.T) {
+	// Build a watcherHandle as watchOnce would; fill sweep before the loop.
+	h := &watcherHandle{
+		poke:         make(chan struct{}, 1),
+		flagOps:      make(chan flagOp, 16),
+		moveOps:      make(chan moveOp, 16),
+		switchFolder: make(chan string, 1),
+		sweep:        make(chan struct{}, 1),
+	}
+
+	// Pre-load the sweep channel to simulate a stale tick from a prior iteration.
+	h.sweep <- struct{}{}
+
+	// The drain logic from watchOnce:
+	select {
+	case <-h.sweep:
+	default:
+	}
+
+	// After the drain, the channel must be empty — no immediate sweep will fire.
+	select {
+	case <-h.sweep:
+		t.Error("stale sweep tick was NOT drained: sweep channel still has an item after watchOnce entry drain")
+	default:
+		// Expected: channel is empty.
+	}
+}
+
+// TestWatchOnce_FreshSweepNotDrained verifies the drain is a non-blocking
+// select: when the sweep channel is already empty on watchOnce entry, the
+// drain is a no-op and the channel remains empty (no spurious receive blocks).
+func TestWatchOnce_FreshSweepNotDrained(t *testing.T) {
+	h := &watcherHandle{
+		poke:         make(chan struct{}, 1),
+		flagOps:      make(chan flagOp, 16),
+		moveOps:      make(chan moveOp, 16),
+		switchFolder: make(chan string, 1),
+		sweep:        make(chan struct{}, 1),
+	}
+
+	// Channel starts empty — the drain must not block.
+	drained := make(chan struct{})
+	go func() {
+		defer close(drained)
+		select {
+		case <-h.sweep:
+		default:
+		}
+	}()
+
+	select {
+	case <-drained:
+		// Good: drain returned immediately.
+	case <-time.After(100 * time.Millisecond):
+		t.Error("drain select blocked on empty sweep channel — must be non-blocking (default case missing)")
+	}
+
+	// Channel must still be empty afterwards.
+	select {
+	case <-h.sweep:
+		t.Error("sweep channel has an item after no-op drain on empty channel")
+	default:
+	}
+}

@@ -15,12 +15,13 @@ import (
 )
 
 type appState struct {
-	cfg     *config.Config
-	store   mail.MessageStore
-	sec     *secrets.Store
-	syncEng *mailsync.Engine
-	sendEng *mailsend.Engine
-	logger  *slog.Logger
+	cfg      *config.Config
+	store    mail.MessageStore
+	rawStore *store.Store
+	sec      *secrets.Store
+	syncEng  *mailsync.Engine
+	sendEng  *mailsend.Engine
+	logger   *slog.Logger
 }
 
 func (a *appState) Close() {
@@ -57,12 +58,13 @@ func openApp(claimant string, logPathFn func() (string, error)) (*appState, erro
 	sendEng := mailsend.New(msgStore, sec, cfg.General.SendMaxAttempts, claimant, logger)
 
 	return &appState{
-		cfg:     cfg,
-		store:   st,
-		sec:     sec,
-		syncEng: syncEng,
-		sendEng: sendEng,
-		logger:  logger,
+		cfg:      cfg,
+		store:    st,
+		rawStore: st,
+		sec:      sec,
+		syncEng:  syncEng,
+		sendEng:  sendEng,
+		logger:   logger,
 	}, nil
 }
 

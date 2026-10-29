@@ -380,9 +380,23 @@ func (e *Engine) watchOnce(ctx context.Context, acct config.Account, authFn func
 		return fmt.Errorf("resolve credential for %s: %w", acct.Name, err)
 	}
 
+	// Per-iteration context: goroutines spawned inside watchOnce (watchdog,
+	// sweepLoop, mergedPoke) are bound to iterCtx so they exit when this
+	// invocation ends, preventing accumulation across reconnect cycles.
+	iterCtx, iterCancel := context.WithCancel(ctx)
+	defer iterCancel()
+
 	poke := h.poke
 	flagOps := h.flagOps
 	moveOps := h.moveOps
+
+	// Drop any stale sweep tick inherited from a prior watchOnce iteration so
+	// the first sweep on this connection happens on schedule, not immediately.
+	select {
+	case <-h.sweep:
+	default:
+	}
+
 	// pokeSend receives pokes from the server's unilateral data (EXISTS/EXPUNGE).
 	pokeSend := make(chan struct{}, 1)
 	handler := &imapclient.UnilateralDataHandler{
@@ -431,9 +445,9 @@ func (e *Engine) watchOnce(ctx context.Context, acct config.Account, authFn func
 		e.setSpecialUse(acct.Name, specialUseMap)
 	}
 
-	// Watchdog: close the connection if the context is cancelled.
+	// Watchdog: close the connection when this iteration ends.
 	go func() {
-		<-ctx.Done()
+		<-iterCtx.Done()
 		_ = c.Close()
 	}()
 
@@ -470,22 +484,22 @@ func (e *Engine) watchOnce(ctx context.Context, acct config.Account, authFn func
 	// Launch the sweep timer goroutine. It pokes h.sweep every sweepInterval;
 	// the IDLE/poll loop drains it between operations.
 	if sweepInterval > 0 {
-		go sweepLoop(ctx, sweepInterval, h.sweep)
+		go sweepLoop(iterCtx, sweepInterval, h.sweep)
 	}
 
 	// Merge external pokes (Refresh) and server-push pokes into one channel.
-	combinedPoke := mergedPoke(ctx, poke, pokeSend)
+	combinedPoke := mergedPoke(iterCtx, poke, pokeSend)
 
 	caps := c.Caps()
 	if caps.Has(imap.CapIdle) && (acct.IDLEEnabled == nil || *acct.IDLEEnabled) {
 		e.logger.Debug("watchOnce: entering IDLE loop", "account", acct.Name)
 		h.setIdle(true)
-		return e.idleLoop(ctx, c, acct, folderID, accountID, serverUIDValidity, combinedPoke, flagOps, moveOps, h.switchFolder, h.sweep, sweepInterval, emit)
+		return e.idleLoop(iterCtx, c, acct, folderID, accountID, serverUIDValidity, combinedPoke, flagOps, moveOps, h.switchFolder, h.sweep, sweepInterval, emit)
 	}
 	idleEnabled := acct.IDLEEnabled == nil || *acct.IDLEEnabled
 	e.logger.Debug("watchOnce: entering poll loop", "account", acct.Name, "idle_cap", caps.Has(imap.CapIdle), "idle_enabled", idleEnabled, "interval", pollInterval)
 	h.setIdle(false)
-	return e.pollLoop(ctx, c, acct, folderID, accountID, serverUIDValidity, combinedPoke, flagOps, moveOps, h.switchFolder, h.sweep, sweepInterval, pollInterval, emit)
+	return e.pollLoop(iterCtx, c, acct, folderID, accountID, serverUIDValidity, combinedPoke, flagOps, moveOps, h.switchFolder, h.sweep, sweepInterval, pollInterval, emit)
 }
 
 // mergedPoke fans in two poke channels into one, stopping when ctx is done.
@@ -617,15 +631,22 @@ func (e *Engine) idleLoop(ctx context.Context, c *imapclient.Client, acct config
 				if ctx.Err() != nil {
 					return nil
 				}
-				e.logger.Warn("sweep failed", "account", acct.Name, "err", err)
-				// Reconnect by returning; the Watch retry loop will reconnect.
-				return err
-			}
-			if newName != "" {
-				currentFolder = newName
-			}
-			if newUID != 0 {
-				uidValidity = newUID
+				// Sweep is non-critical maintenance. Only reconnect if the
+				// connection is actually dead; otherwise log and stay in IDLE.
+				if nerr := c.Noop().Wait(); nerr != nil {
+					e.logger.Warn("sweep failed and connection is dead; reconnecting",
+						"account", acct.Name, "sweep_err", err, "noop_err", nerr)
+					return err
+				}
+				e.logger.Warn("sweep failed; connection still alive, continuing",
+					"account", acct.Name, "err", err)
+			} else {
+				if newName != "" {
+					currentFolder = newName
+				}
+				if newUID != 0 {
+					uidValidity = newUID
+				}
 			}
 		}
 	}
@@ -685,14 +706,20 @@ func (e *Engine) pollLoop(ctx context.Context, c *imapclient.Client, acct config
 				if ctx.Err() != nil {
 					return nil
 				}
-				e.logger.Warn("sweep failed", "account", acct.Name, "err", err)
-				return err
-			}
-			if newName != "" {
-				currentFolder = newName
-			}
-			if newUID != 0 {
-				uidValidity = newUID
+				if nerr := c.Noop().Wait(); nerr != nil {
+					e.logger.Warn("sweep failed and connection is dead; reconnecting",
+						"account", acct.Name, "sweep_err", err, "noop_err", nerr)
+					return err
+				}
+				e.logger.Warn("sweep failed; connection still alive, continuing",
+					"account", acct.Name, "err", err)
+			} else {
+				if newName != "" {
+					currentFolder = newName
+				}
+				if newUID != 0 {
+					uidValidity = newUID
+				}
 			}
 			continue
 		}
