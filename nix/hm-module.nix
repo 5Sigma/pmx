@@ -24,8 +24,8 @@ in {
 
     package = lib.mkOption {
       type        = lib.types.package;
-      default     = self.packages.${pkgs.system}.pmx;
-      defaultText = lib.literalExpression "pmx.packages.\${pkgs.system}.pmx";
+      default     = self.packages.${pkgs.stdenv.hostPlatform.system}.pmx;
+      defaultText = lib.literalExpression "pmx.packages.\${pkgs.stdenv.hostPlatform.system}.pmx";
       description = "The pmx package to use (provides the pmx binary; daemon is run as 'pmx daemon').";
     };
 
