@@ -45,6 +45,13 @@ type messagesLoadedMsg struct {
 	messages []*mail.Message
 }
 
+// gotoTopMsg / gotoBottomMsg / nextUnreadMsg are the leader-dispatched
+// cursor-jump messages under `<space> g`. Handled directly by mailList.Update
+// because they mutate the embedded list.Model cursor only.
+type gotoTopMsg struct{}
+type gotoBottomMsg struct{}
+type nextUnreadMsg struct{}
+
 func newMailList(store mail.MessageStore, cfg *config.Config, sender mailops.SendOps, folderID int64, folderName string, folderRole mail.FolderRole) mailList {
 	items := []list.Item{}
 
@@ -102,6 +109,31 @@ func (ml mailList) Update(msg tea.Msg) (View, tea.Cmd) {
 			items[i] = messageToItem(m)
 		}
 		return ml, ml.list.SetItems(items)
+	case gotoTopMsg:
+		if len(ml.list.VisibleItems()) > 0 {
+			ml.list.Select(0)
+		}
+		return ml, nil
+	case gotoBottomMsg:
+		if n := len(ml.list.VisibleItems()); n > 0 {
+			ml.list.Select(n - 1)
+		}
+		return ml, nil
+	case nextUnreadMsg:
+		items := ml.list.VisibleItems()
+		n := len(items)
+		if n == 0 {
+			return ml, nil
+		}
+		start := ml.list.Index() + 1
+		for off := 0; off < n; off++ {
+			i := (start + off) % n
+			if mi, ok := items[i].(mailItem); ok && mi.unread {
+				ml.list.Select(i)
+				return ml, nil
+			}
+		}
+		return ml, nil
 	case tea.KeyMsg:
 		switch {
 		case msg.String() == "q":
@@ -266,11 +298,6 @@ func (ml mailList) StatusKeys() string {
 // results into pushes / pops / quits. This keeps the keymap package free
 // of bubbletea deps.
 func (ml mailList) KeyMap() keymap.KeyMap {
-	// A stub action — most leaves are not yet wired to real logic.
-	stub := func(note string) keymap.Action {
-		return func() keymap.Result { return keymap.Result{Note: note} }
-	}
-
 	return keymap.KeyMap{
 		Primary: []keymap.Binding{
 			{Key: "j/k", Desc: "navigate"},
@@ -401,9 +428,15 @@ func (ml mailList) KeyMap() keymap.KeyMap {
 					Key:  "g",
 					Desc: "go to",
 					Children: []keymap.Entry{
-						{Key: "g", Desc: "top", Action: stub("go top")},
-						{Key: "G", Desc: "bottom", Action: stub("go bottom")},
-						{Key: "n", Desc: "next unread", Accent: true, Action: stub("next unread")},
+						{Key: "g", Desc: "top", Action: func() keymap.Result {
+							return keymap.Result{Message: gotoTopMsg{}}
+						}},
+						{Key: "G", Desc: "bottom", Action: func() keymap.Result {
+							return keymap.Result{Message: gotoBottomMsg{}}
+						}},
+						{Key: "n", Desc: "next unread", Accent: true, Action: func() keymap.Result {
+							return keymap.Result{Message: nextUnreadMsg{}}
+						}},
 					},
 				},
 				{

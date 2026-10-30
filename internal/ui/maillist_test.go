@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/5Sigma/pmx/internal/config"
@@ -345,5 +346,146 @@ func TestMailList_ArchiveLeafNoSelection(t *testing.T) {
 	}
 	if result.Message != nil {
 		t.Errorf(`["m","a"] with no selection: want Message=nil, got %T`, result.Message)
+	}
+}
+
+// ── <space> g navigation tests ────────────────────────────────────────────────
+
+// loadMailList constructs a mailList and drives Init() so the list.Model is
+// populated with the stub store's messages. The returned mailList has valid
+// items ready for cursor operations.
+func loadMailList(t *testing.T, msgs []*mail.Message) mailList {
+	t.Helper()
+	st := &stubListStore{messages: msgs}
+	cfg := config.Default()
+	ml := newMailList(st, cfg, nil, 1, "Inbox", mail.RoleInbox)
+	ml = ml.SetSize(80, 24).(mailList)
+	if cmd := ml.Init(); cmd != nil {
+		msg := cmd()
+		updated, _ := ml.Update(msg)
+		ml = updated.(mailList)
+	}
+	return ml
+}
+
+func TestMailList_GotoTopJumpsToFirstRow(t *testing.T) {
+	msgs := make([]*mail.Message, 10)
+	for i := range msgs {
+		msgs[i] = &mail.Message{ID: int64(i + 1), FolderID: 1, UID: uint32(i + 1)}
+	}
+	ml := loadMailList(t, msgs)
+	ml.list.Select(5)
+	updated, _ := ml.Update(gotoTopMsg{})
+	ml = updated.(mailList)
+	if got := ml.list.Index(); got != 0 {
+		t.Errorf("after gotoTopMsg: Index() = %d, want 0", got)
+	}
+}
+
+func TestMailList_GotoBottomJumpsToLastRow(t *testing.T) {
+	msgs := make([]*mail.Message, 10)
+	for i := range msgs {
+		msgs[i] = &mail.Message{ID: int64(i + 1), FolderID: 1, UID: uint32(i + 1)}
+	}
+	ml := loadMailList(t, msgs)
+	ml.list.Select(2)
+	updated, _ := ml.Update(gotoBottomMsg{})
+	ml = updated.(mailList)
+	if got := ml.list.Index(); got != 9 {
+		t.Errorf("after gotoBottomMsg: Index() = %d, want 9", got)
+	}
+}
+
+func TestMailList_NextUnreadFindsForwardTarget(t *testing.T) {
+	// 10 messages; UID=8 is the only unread (seen flag unset).
+	msgs := make([]*mail.Message, 10)
+	for i := range msgs {
+		m := &mail.Message{ID: int64(i + 1), FolderID: 1, UID: uint32(i + 1), Flags: mail.FlagSeen}
+		if i == 7 {
+			m.Flags = 0
+		}
+		msgs[i] = m
+	}
+	ml := loadMailList(t, msgs)
+	ml.list.Select(3)
+	updated, _ := ml.Update(nextUnreadMsg{})
+	ml = updated.(mailList)
+	if got := ml.list.Index(); got != 7 {
+		t.Errorf("next unread forward: Index() = %d, want 7", got)
+	}
+}
+
+func TestMailList_NextUnreadWrapsAround(t *testing.T) {
+	// Only index 1 is unread; cursor starts past it so the search must wrap.
+	msgs := make([]*mail.Message, 10)
+	for i := range msgs {
+		m := &mail.Message{ID: int64(i + 1), FolderID: 1, UID: uint32(i + 1), Flags: mail.FlagSeen}
+		if i == 1 {
+			m.Flags = 0
+		}
+		msgs[i] = m
+	}
+	ml := loadMailList(t, msgs)
+	ml.list.Select(5)
+	updated, _ := ml.Update(nextUnreadMsg{})
+	ml = updated.(mailList)
+	if got := ml.list.Index(); got != 1 {
+		t.Errorf("next unread wrap: Index() = %d, want 1", got)
+	}
+}
+
+func TestMailList_NextUnreadNoneLeavesCursor(t *testing.T) {
+	msgs := make([]*mail.Message, 5)
+	for i := range msgs {
+		msgs[i] = &mail.Message{ID: int64(i + 1), FolderID: 1, UID: uint32(i + 1), Flags: mail.FlagSeen}
+	}
+	ml := loadMailList(t, msgs)
+	ml.list.Select(2)
+	updated, _ := ml.Update(nextUnreadMsg{})
+	ml = updated.(mailList)
+	if got := ml.list.Index(); got != 2 {
+		t.Errorf("next unread with no unread rows: Index() = %d, want 2 (unchanged)", got)
+	}
+}
+
+func TestMailList_GotoMsgsAreNoOpOnEmptyList(t *testing.T) {
+	ml := loadMailList(t, nil)
+	for _, m := range []any{gotoTopMsg{}, gotoBottomMsg{}, nextUnreadMsg{}} {
+		updated, cmd := ml.Update(m)
+		if cmd != nil {
+			t.Errorf("empty list %T returned non-nil cmd", m)
+		}
+		if updated.(mailList).list.Index() != 0 {
+			t.Errorf("empty list %T disturbed cursor", m)
+		}
+	}
+}
+
+// ── <space> g leader dispatch tests ──────────────────────────────────────────
+
+func TestMailList_GotoLeadersDispatchMessages(t *testing.T) {
+	cfg := config.Default()
+	ml := newMailList(&stubListStore{}, cfg, nil, 1, "Inbox", mail.RoleInbox)
+
+	cases := []struct {
+		path     []string
+		wantType string
+	}{
+		{[]string{"g", "g"}, fmt.Sprintf("%T", gotoTopMsg{})},
+		{[]string{"g", "G"}, fmt.Sprintf("%T", gotoBottomMsg{})},
+		{[]string{"g", "n"}, fmt.Sprintf("%T", nextUnreadMsg{})},
+	}
+	for _, tc := range cases {
+		_, action, ok := ml.KeyMap().FindLeader(tc.path)
+		if !ok || action == nil {
+			t.Fatalf(`FindLeader(%v): ok=%v action=%v`, tc.path, ok, action)
+		}
+		result := action()
+		if result.Message == nil {
+			t.Fatalf(`%v action returned nil Message, want %s`, tc.path, tc.wantType)
+		}
+		if got := fmt.Sprintf("%T", result.Message); got != tc.wantType {
+			t.Errorf("%v Message type = %s, want %s", tc.path, got, tc.wantType)
+		}
 	}
 }
