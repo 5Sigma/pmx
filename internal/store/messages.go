@@ -231,6 +231,70 @@ func (s *Store) Search(query string, limit int) ([]*Message, error) {
 	return scanMessages(rows)
 }
 
+// SearchInAccount runs an FTS5 full-text search scoped to a single account.
+// query is passed through to messages_fts MATCH verbatim; callers that accept
+// raw user input should run it through SanitizeFTSQuery first. An empty query
+// returns (nil, nil).
+func (s *Store) SearchInAccount(accountID int64, query string, limit int) ([]*Message, error) {
+	if strings.TrimSpace(query) == "" {
+		return nil, nil
+	}
+	rows, err := s.db.Query(`
+		SELECT m.id, m.folder_id, m.uid, m.message_id, m.in_reply_to, m.references_,
+		       m.thread_root, m.subject, m.from_addr, m.to_addrs, m.cc_addrs, m.bcc_addrs,
+		       m.date_sent, m.date_received, m.flags, m.size_bytes,
+		       m.body_text, m.body_html, m.has_attach, m.raw_path
+		FROM messages m
+		JOIN messages_fts f ON m.id = f.rowid
+		JOIN folders fo    ON fo.id = m.folder_id
+		WHERE fo.account_id = ? AND messages_fts MATCH ?
+		ORDER BY rank
+		LIMIT ?`,
+		accountID, query, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("search in account %d %q: %w", accountID, query, err)
+	}
+	defer func() { _ = rows.Close() }()
+	return scanMessages(rows)
+}
+
+// SanitizeFTSQuery converts an arbitrary user string into a safe FTS5 MATCH
+// expression. Each whitespace-separated token is stripped of FTS-special runes,
+// quoted, and given a trailing * for prefix matching. Tokens are joined with
+// spaces (implicit AND). The result is empty when there is nothing meaningful
+// to search for; callers should skip the DB round-trip in that case.
+func SanitizeFTSQuery(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	replacer := strings.NewReplacer(
+		`"`, " ",
+		`(`, " ",
+		`)`, " ",
+		`*`, " ",
+		`:`, " ",
+		`-`, " ",
+		`^`, " ",
+		`+`, " ",
+	)
+	cleaned := replacer.Replace(raw)
+	fields := strings.Fields(cleaned)
+	const maxTokens = 8
+	if len(fields) > maxTokens {
+		fields = fields[:maxTokens]
+	}
+	out := make([]string, 0, len(fields))
+	for _, tok := range fields {
+		if tok == "" {
+			continue
+		}
+		out = append(out, `"`+tok+`"*`)
+	}
+	return strings.Join(out, " ")
+}
+
 // folderColumns is the canonical SELECT list for the folders table. All
 // scanFolder* helpers assume this column order; keep SQL and scanners in sync.
 const folderColumns = `id, account_id, name, role, uid_validity, highest_modseq,

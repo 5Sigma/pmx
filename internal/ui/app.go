@@ -19,11 +19,13 @@ import (
 	"github.com/5Sigma/pmx/internal/mailsend"
 	"github.com/5Sigma/pmx/internal/mailsync"
 	"github.com/5Sigma/pmx/internal/pmxproto"
+	storepkg "github.com/5Sigma/pmx/internal/store"
 	"github.com/5Sigma/pmx/internal/ui/accountdrawer"
 	"github.com/5Sigma/pmx/internal/ui/compose"
 	"github.com/5Sigma/pmx/internal/ui/folderdrawer"
 	"github.com/5Sigma/pmx/internal/ui/keymap"
 	"github.com/5Sigma/pmx/internal/ui/pathpicker"
+	"github.com/5Sigma/pmx/internal/ui/searchdrawer"
 	"github.com/5Sigma/pmx/internal/ui/styles"
 	"github.com/5Sigma/pmx/internal/ui/whichkey"
 )
@@ -144,6 +146,28 @@ type folderSelectedMsg struct {
 
 // openAccountDrawerMsg asks the shell to reveal the account drawer.
 type openAccountDrawerMsg struct{}
+
+// openSearchDrawerMsg asks the shell to reveal the top-anchored full-text
+// search drawer. Dispatched by the mail list's `<Space> /` leader binding.
+type openSearchDrawerMsg struct{}
+
+// searchResultsMsg carries the FTS5 results for a given generation back to
+// the search drawer. Results are dropped if the gen has been superseded by a
+// more recent keystroke.
+type searchResultsMsg struct {
+	gen     uint64
+	results []*mail.Message
+}
+
+// searchResultSelectedMsg is emitted by the search drawer when the user
+// confirms a result. The shell loads the full message, pushes a mailread
+// view on top of the stack, and leaves the mail list's folder context
+// unchanged.
+type searchResultSelectedMsg struct {
+	messageID int64
+	folderID  int64
+	uid       uint32
+}
 
 // openStatusMsg asks the shell to push the status/debug screen on top of the
 // current view. Dispatched by the mail list's `<Space> ?` leader binding.
@@ -316,6 +340,7 @@ type Model struct {
 	folderDrawer  *folderdrawer.Model
 	accountDrawer *accountdrawer.Model
 	pathPicker    *pathpicker.Model
+	searchDrawer  *searchdrawer.Model
 
 	// store is the shared message store, available to any view that needs
 	// to read or persist mail. May be nil — all paths must tolerate that.
@@ -412,12 +437,27 @@ func New(store mail.MessageStore, ops mailops.MailOps, send mailops.SendOps, sta
 			Bold(true)),
 	)
 
+	searchDrawerModel := searchdrawer.New(
+		renderSearchRow,
+		func(msg *mail.Message) tea.Msg {
+			if msg == nil {
+				return nil
+			}
+			return searchResultSelectedMsg{
+				messageID: msg.ID,
+				folderID:  msg.FolderID,
+				uid:       msg.UID,
+			}
+		},
+	)
+
 	m := Model{
 		stack:         []View{newMailList(store, cfg, send, inboxFolderID, "Inbox", mail.RoleInbox)},
 		wk:            wk,
 		folderDrawer:  folderDrawer,
 		accountDrawer: acctDrawer,
 		pathPicker:    pathpicker.New(),
+		searchDrawer:  searchDrawerModel,
 		store:         store,
 		ops:           ops,
 		send:          send,
@@ -474,6 +514,9 @@ func (m Model) contentHeight() int {
 	if m.pathPicker != nil {
 		h -= m.pathPicker.Height(m.width)
 	}
+	if m.searchDrawer != nil {
+		h -= m.searchDrawer.Height()
+	}
 	if h < 1 {
 		return 1
 	}
@@ -506,6 +549,9 @@ func (m *Model) closeOtherOverlays(keep string) {
 	}
 	if keep != "account" && m.accountDrawer != nil && m.accountDrawer.IsOpen() {
 		m.accountDrawer.Close()
+	}
+	if keep != "search" && m.searchDrawer != nil && m.searchDrawer.IsOpen() {
+		m.searchDrawer.Close()
 	}
 }
 
@@ -571,6 +617,18 @@ func (m *Model) resizeDrawer() {
 	if m.accountDrawer != nil {
 		m.accountDrawer.SetSize(m.width, h)
 	}
+	if m.searchDrawer != nil {
+		// Pass the full not-yet-shrunken content budget so the search drawer
+		// decides its own height; it clamps internally.
+		raw := m.height - chromeHeight - m.popupHeight()
+		if m.pathPicker != nil {
+			raw -= m.pathPicker.Height(m.width)
+		}
+		if raw < 1 {
+			raw = 1
+		}
+		m.searchDrawer.SetSize(m.width, raw)
+	}
 }
 
 func (m Model) Init() tea.Cmd {
@@ -603,6 +661,9 @@ type inputCapturer interface {
 // NOT intercepted.
 func (m Model) viewIsCapturingInput() bool {
 	if m.pathPicker != nil && m.pathPicker.IsCapturingInput() {
+		return true
+	}
+	if m.searchDrawer != nil && m.searchDrawer.IsOpen() && m.searchDrawer.IsCapturingInput() {
 		return true
 	}
 	if m.folderDrawer != nil && m.folderDrawer.IsOpen() && m.folderDrawer.IsCapturingInput() {
@@ -747,6 +808,77 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.resizeDrawer()
 		m.resizeTop()
 		return m, loadFoldersCmd(m.store, m.accountID)
+
+	case openSearchDrawerMsg:
+		if m.searchDrawer == nil {
+			return m, nil
+		}
+		m.closeOtherOverlays("search")
+		m.searchDrawer.Open()
+		m.resizeDrawer()
+		m.resizeTop()
+		return m, nil
+
+	case searchdrawer.QueryTickMsg:
+		if m.searchDrawer == nil || !m.searchDrawer.IsOpen() {
+			return m, nil
+		}
+		if msg.Gen != m.searchDrawer.PendingGen() {
+			return m, nil
+		}
+		if strings.TrimSpace(msg.Query) == "" {
+			m.searchDrawer.SetResults(msg.Gen, nil)
+			return m, nil
+		}
+		store := m.store
+		accountID := m.accountID
+		gen := msg.Gen
+		query := msg.Query
+		return m, func() tea.Msg {
+			if store == nil || accountID == 0 {
+				return searchResultsMsg{gen: gen}
+			}
+			fts := storepkg.SanitizeFTSQuery(query)
+			if fts == "" {
+				return searchResultsMsg{gen: gen}
+			}
+			results, err := store.SearchInAccount(accountID, fts, 100)
+			if err != nil {
+				return searchResultsMsg{gen: gen}
+			}
+			return searchResultsMsg{gen: gen, results: results}
+		}
+
+	case searchResultsMsg:
+		if m.searchDrawer != nil {
+			m.searchDrawer.SetResults(msg.gen, msg.results)
+		}
+		return m, nil
+
+	case searchResultSelectedMsg:
+		if m.store == nil || msg.folderID == 0 || msg.uid == 0 {
+			m.resizeTop()
+			return m, nil
+		}
+		src, err := m.store.ByUID(msg.folderID, msg.uid)
+		if err != nil || src == nil {
+			m.resizeTop()
+			return m, nil
+		}
+		if atts, err := m.store.ListAttachments(src.ID); err == nil {
+			src.Attachments = atts
+		}
+		item := messageToItem(src)
+		keys := config.Default().Keymap()
+		if m.cfg != nil {
+			keys = m.cfg.Keymap()
+		}
+		view := newMailRead(item, m.store, m.cfg, m.send, keys)
+		sized := view.SetSize(m.contentWidth(), m.contentHeight())
+		m.stack = append(m.stack, sized)
+		m.wk.SetKeyMap(sized.KeyMap())
+		m.resizeTop()
+		return m, sized.Init()
 
 	case openAccountDrawerMsg:
 		// Compose guard — don't open while composing.
@@ -1150,6 +1282,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
+	// Search drawer takes precedence when open — it owns the text input and
+	// result navigation while visible.
+	if m.searchDrawer != nil && m.searchDrawer.IsOpen() {
+		cmd := m.searchDrawer.Update(msg)
+		m.resizeDrawer()
+		m.resizeTop()
+		return m, cmd
+	}
+
 	// Account drawer takes precedence when open.
 	if m.accountDrawer != nil && m.accountDrawer.IsOpen() {
 		cmd := m.accountDrawer.Update(msg)
@@ -1356,6 +1497,14 @@ func (m Model) renderStatusBar() string {
 
 	var modeStr, hints string
 	switch {
+	case m.searchDrawer != nil && m.searchDrawer.IsOpen():
+		modeStr = lipgloss.NewStyle().
+			Background(styles.ColorPrimaryHi).
+			Foreground(styles.ColorBg).
+			Bold(true).
+			Padding(0, 1).
+			Render(" SEARCH ")
+		hints = m.searchDrawer.StatusKeys()
 	case m.pathPicker != nil && m.pathPicker.IsOpen():
 		modeStr = styles.StatusMode.Render(" PATH ")
 		hints = m.pathPicker.StatusKeys()
@@ -1450,7 +1599,13 @@ func (m Model) View() string {
 	} else if m.accountDrawer != nil && m.accountDrawer.IsOpen() {
 		content = lipgloss.JoinHorizontal(lipgloss.Top, m.accountDrawer.View(), content)
 	}
-	parts := []string{m.renderHeader(), content}
+	parts := []string{m.renderHeader()}
+	if m.searchDrawer != nil && m.searchDrawer.IsOpen() {
+		if sv := m.searchDrawer.View(); sv != "" {
+			parts = append(parts, sv)
+		}
+	}
+	parts = append(parts, content)
 	if m.pathPicker != nil && m.pathPicker.IsOpen() {
 		if p := m.pathPicker.View(m.width); p != "" {
 			parts = append(parts, p)

@@ -415,6 +415,10 @@ func (ml mailList) KeyMap() keymap.KeyMap {
 					Action: func() keymap.Result { return keymap.Result{Message: refreshMsg{}} },
 				},
 				{
+					Key: "/", Desc: "search mail", Accent: true,
+					Action: func() keymap.Result { return keymap.Result{Message: openSearchDrawerMsg{}} },
+				},
+				{
 					Key: "?", Desc: "status",
 					Action: func() keymap.Result { return keymap.Result{Message: openStatusMsg{}} },
 				},
@@ -529,25 +533,25 @@ func (d mailDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 	if !ok {
 		return
 	}
+	_, _ = fmt.Fprint(w, renderMailItemLine(mi, m.Width(), index == m.Index()))
+}
 
-	selected := index == m.Index()
-	width := m.Width()
-
+// renderMailItemLine renders a single mailItem row as three terminal lines
+// joined by newlines, matching the mail-list delegate's layout. Exposed so
+// other views (e.g. the search drawer) can reproduce the exact mail-list row
+// look without depending on list.Model.
+func renderMailItemLine(mi mailItem, width int, selected bool) string {
 	const prefixWidth = 4 // selBar(1) + space(1) + unreadDot(1) + space(1)
 	if width <= prefixWidth+6 {
-		_, _ = fmt.Fprintf(w, "%s\n%s\n%s", mi.from, mi.subject, mi.preview)
-		return
+		return fmt.Sprintf("%s\n%s\n%s", mi.from, mi.subject, mi.preview)
 	}
 	inner := width - prefixWidth
 
-	// Row background style.
 	rowBg := styles.ItemBg
 	if selected {
 		rowBg = styles.ItemBgSelected
 	}
 
-	// Selection bar: thick bar when selected, blank gutter otherwise. The bar
-	// keeps the surface background so it reads as part of the row.
 	var selBar string
 	if selected {
 		selBar = styles.SelectionBar.Render("▌") + rowBg.Render(" ")
@@ -555,7 +559,6 @@ func (d mailDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 		selBar = rowBg.Render("  ")
 	}
 
-	// Unread indicator — bright accent dot for unread, hollow glyph for read.
 	var unreadDot string
 	switch {
 	case mi.unread:
@@ -566,14 +569,12 @@ func (d mailDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 
 	prefix := selBar + unreadDot
 
-	// Column widths for line 1 (sender + date right-aligned).
 	dateW := lipgloss.Width(mi.date)
 	fromMax := inner - dateW - 1 - flagsWidth(mi)
 	if fromMax < 1 {
 		fromMax = 1
 	}
 
-	// Sender — unread is bright + bold, read is subdued.
 	fromText := truncate(mi.from, fromMax)
 	var fromStr string
 	if mi.unread {
@@ -582,10 +583,8 @@ func (d mailDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 		fromStr = rowBg.Foreground(styles.ColorSubdued).Render(fromText)
 	}
 
-	// Flags (attachment, flagged) sit between sender and date.
 	flags := renderFlags(mi, rowBg)
 
-	// Date.
 	var dateStr string
 	if mi.unread {
 		dateStr = rowBg.Foreground(styles.ColorPrimaryHi).Bold(true).Render(mi.date)
@@ -599,7 +598,6 @@ func (d mailDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 	}
 	line1 := prefix + fromStr + rowBg.Render(strings.Repeat(" ", gap)) + flags + dateStr
 
-	// Line 2: subject + optional tag chips.
 	tagStrip := renderTags(mi.tags, rowBg)
 	subjMax := inner - lipgloss.Width(tagStrip) - 1
 	if subjMax < 4 {
@@ -616,7 +614,6 @@ func (d mailDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 	if subjGap < 0 {
 		subjGap = 0
 	}
-	// Rebuild indentation for line 2 — selection bar + spacing (no dot).
 	var line2Prefix string
 	if selected {
 		line2Prefix = styles.SelectionBar.Render("▌") + rowBg.Render("   ")
@@ -625,7 +622,6 @@ func (d mailDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 	}
 	line2 := line2Prefix + subjStr + rowBg.Render(strings.Repeat(" ", subjGap)) + tagStrip
 
-	// Line 3: preview snippet, italic + faint.
 	prevStr := rowBg.Foreground(styles.ColorFaint).Italic(true).Render(truncate(mi.preview, inner))
 	prevGap := inner - lipgloss.Width(prevStr)
 	if prevGap < 0 {
@@ -633,12 +629,21 @@ func (d mailDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 	}
 	line3 := line2Prefix + prevStr + rowBg.Render(strings.Repeat(" ", prevGap))
 
-	// Pad all lines to the full width so the row background covers edge-to-edge.
 	line1 = padRight(line1, width, rowBg)
 	line2 = padRight(line2, width, rowBg)
 	line3 = padRight(line3, width, rowBg)
 
-	_, _ = fmt.Fprintf(w, "%s\n%s\n%s", line1, line2, line3)
+	return fmt.Sprintf("%s\n%s\n%s", line1, line2, line3)
+}
+
+// renderSearchRow renders a search-result row by converting the message
+// through messageToItem and reusing renderMailItemLine. The returned string
+// is three lines tall; callers may pad or clip to fit.
+func renderSearchRow(msg *mail.Message, width int, selected bool) string {
+	if msg == nil {
+		return ""
+	}
+	return renderMailItemLine(messageToItem(msg), width, selected)
 }
 
 // flagsWidth returns the display width of the flag glyphs that will be

@@ -38,6 +38,10 @@ type MessageStore interface {
 	BodyHTML(messageID int64) (string, error)
 	// Search performs an FTS5 full-text search across all messages.
 	Search(query string, limit int) ([]*Message, error)
+	// SearchInAccount runs an FTS5 full-text search scoped to one account.
+	// query must already be a valid FTS5 MATCH expression; use
+	// store.SanitizeFTSQuery for raw user input.
+	SearchInAccount(accountID int64, query string, limit int) ([]*Message, error)
 	// ExistingUIDs returns the set of UIDs stored for a folder.
 	ExistingUIDs(folderID int64) (map[uint32]struct{}, error)
 	// ClearFolderMessages deletes all messages in a folder (used on UID validity reset).
